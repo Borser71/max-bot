@@ -56,7 +56,7 @@ dp = Dispatcher()
 async def handle_message(event: MessageCreated):
     user = event.message.sender
     user_name = user.first_name or user.username or "Неизвестный"
-    user_id = user.id
+    user_id = user.user_id
     text = event.message.body.text
 
     if text:
