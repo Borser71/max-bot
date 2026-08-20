@@ -1,0 +1,3 @@
+max-chatbot-python
+python-dotenv
+requests
