@@ -16,7 +16,6 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Глобальная переменная для хранения ID последнего клиента ---
 last_client_id = None
 
 def send_email(text, user_name, user_id):
@@ -26,7 +25,6 @@ def send_email(text, user_name, user_id):
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
@@ -51,7 +49,6 @@ def log_to_google_sheet(user_name, user_id, text):
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Команда /reply ---
 @dp.message_created(F.message.body.text.startswith("/reply"))
 async def reply_to_client(event: MessageCreated):
     global last_client_id
@@ -60,20 +57,17 @@ async def reply_to_client(event: MessageCreated):
     if not reply_text:
         await event.message.answer("Напишите: /reply Текст ответа")
         return
-
     if not last_client_id:
         await event.message.answer("Нет недавних клиентов для ответа.")
         return
-
     try:
-        await bot.api.send_message(chat_id=last_client_id, text=reply_text)
+        await bot.send_message(chat_id=last_client_id, text=reply_text)
         await event.message.answer(f"Ответ отправлен клиенту {last_client_id}")
         logging.info(f"Ответ отправлен клиенту {last_client_id}")
     except Exception as e:
         await event.message.answer(f"Ошибка отправки: {e}")
         logging.error(f"Ошибка отправки клиенту: {e}")
 
-# --- Обработчик всех текстовых сообщений от клиентов ---
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
     global last_client_id
@@ -81,16 +75,11 @@ async def handle_message(event: MessageCreated):
     user_name = user.first_name or user.username or "Неизвестный"
     user_id = user.user_id
     text = event.message.body.text
-
-    # Запоминаем последнего клиента
     last_client_id = user_id
-
     if text:
         send_email(text, user_name, user_id)
         log_to_google_sheet(user_name, user_id, text)
-        await event.message.answer(
-            "Ваше сообщение получено! Я передам его Сергею. Обычно отвечаю в течение часа."
-        )
+        await event.message.answer("Ваше сообщение получено! Я передам его Сергею. Обычно отвечаю в течение часа.")
 
 async def main():
     await dp.start_polling(bot)
