@@ -73,7 +73,7 @@ async def handle_message(event: MessageCreated):
         send_phone_email(user_name, user_id, phone)
         log_to_google_sheet(user_name, user_id, phone)
         await event.message.answer(
-            "Спасибо! Номер получен. Сергей свяжется с вами в Max в ближайшее время."
+            "Спасибо! Номер получен. Сергей свяжется с вами в MAX в ближайшее время."
         )
         waiting_for_phone[user_id] = False  # сбрасываем состояние
         return
