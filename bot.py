@@ -52,7 +52,7 @@ def handle_message(message):
     if text:
         send_email(text, user_name, user_id)
         log_to_google_sheet(user_name, user_id, text)
-        # Отвечаем клиенту (если нужно)
+        # Отвечаем клиенту
         message.reply("Ваше сообщение получено! Я передам его Сергею. Обычно отвечаю в течение часа.")
 
 if __name__ == "__main__":
