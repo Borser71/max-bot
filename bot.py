@@ -56,6 +56,6 @@ def handle_message(message):
         message.reply("Ваше сообщение получено! Я передам его Сергею. Обычно отвечаю в течение часа.")
 
 if __name__ == "__main__":
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(BOT_TOKEN)           # ← исправлено: без token=
     bot.message_handler(handle_message)
     bot.run_polling()
