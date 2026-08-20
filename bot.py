@@ -43,7 +43,6 @@ def log_to_google_sheet(user_name, user_id, text):
     except Exception as e:
         logging.error(f"Ошибка соединения с Apps Script: {e}")
 
-# --- Обработчик сообщений ---
 def handle_message(message):
     user = message.from_user
     user_name = user.first_name or user.username or "Неизвестный"
@@ -53,11 +52,10 @@ def handle_message(message):
     if text:
         send_email(text, user_name, user_id)
         log_to_google_sheet(user_name, user_id, text)
-        # Ответ клиенту (опционально)
+        # Отвечаем клиенту (если нужно)
         message.reply("Ваше сообщение получено! Я передам его Сергею. Обычно отвечаю в течение часа.")
 
-# --- Запуск бота ---
 if __name__ == "__main__":
     bot = Bot(token=BOT_TOKEN)
-    bot.message_handler(handle_message)  # регистрируем обработчик
+    bot.message_handler(handle_message)
     bot.run_polling()
