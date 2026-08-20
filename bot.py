@@ -73,7 +73,7 @@ async def handle_message(event: MessageCreated):
         send_phone_email(user_name, user_id, phone)
         log_to_google_sheet(user_name, user_id, phone)
         await event.message.answer(
-            "Спасибо! Номер получен. Сергей свяжется с вами в ближайшее время."
+            "Спасибо! Номер получен. Сергей свяжется с вами в Max в ближайшее время."
         )
         waiting_for_phone[user_id] = False  # сбрасываем состояние
         return
@@ -85,7 +85,7 @@ async def handle_message(event: MessageCreated):
     await event.message.answer(
         f"Здравствуйте, {user_name}! 👋\n"
         "Пожалуйста, напишите ваш номер телефона в ответном сообщении.\n"
-        "Сергей свяжется с вами в MAX в ближайшее время."
+        
     )
 
 # --- Запуск бота ---
