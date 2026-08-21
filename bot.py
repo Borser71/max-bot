@@ -22,7 +22,7 @@ if not OPENROUTER_API_KEY:
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Клиент OpenRouter (нейросеть) ---
+# --- Клиент OpenRouter ---
 client = OpenAI(
     api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1"
@@ -239,29 +239,32 @@ def log_to_google_sheet(user_name, user_id, phone):
     except Exception as e:
         logging.error(f"Ошибка соединения с Apps Script: {e}")
 
-# --- Инициализация бота и диспетчера ---
+# --- Инициализация бота ---
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # --- Состояния ---
 waiting_for_phone = {}       # user_id -> True/False (ждём номер)
-awaiting_order_type = {}     # user_id -> True/False (ждём ответ на вопрос о заказе)
 phone_collected = {}         # user_id -> True/False (номер уже собран)
-client_choice = {}           # user_id -> "site" / "bot" / "agent"
+history = {}                 # user_id -> список сообщений для нейросети (с ролью)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
     user_id = event.message.sender.user_id
     text = event.message.body.text.strip()
+    user = event.message.sender
+    user_name = user.first_name or user.username or "Неизвестный"
 
     # --- Команда /cancel ---
     if text.startswith("/cancel"):
         if waiting_for_phone.get(user_id):
             waiting_for_phone[user_id] = False
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
-        elif awaiting_order_type.get(user_id):
-            awaiting_order_type[user_id] = False
-            await event.message.answer("Вы отменили выбор услуги. Начнём заново?")
+        elif phone_collected.get(user_id):
+            # Если уже в режиме консультации — сбрасываем историю (можно начать заново)
+            phone_collected[user_id] = False
+            history[user_id] = []
+            await event.message.answer("Диалог сброшен. Давайте начнём сначала. Напишите что-нибудь.")
         else:
             await event.message.answer("Нечего отменять.")
         return
@@ -284,24 +287,26 @@ async def handle_message(event: MessageCreated):
 
             # Номер принят
             phone = text
-            user = event.message.sender
-            user_name = user.first_name or user.username or "Неизвестный"
             send_phone_email(user_name, user_id, phone)
             log_to_google_sheet(user_name, user_id, phone)
             phone_collected[user_id] = True
             waiting_for_phone[user_id] = False
 
-            # Задаём вопрос о заказе
-            awaiting_order_type[user_id] = True
+            # Добавляем в историю, что номер уже получен
+            history[user_id] = [
+                {"role": "system", "content": f"Номер клиента уже получен: {phone}. Не спрашивай его повторно."},
+                {"role": "system", "content": "Ты — консультант компании Borisov Store. Отвечай на вопросы, помогай выбрать услугу."}
+            ]
+
+            # Передаём управление нейросети
             await event.message.answer(
-                f"Спасибо, {user_name}! Номер получен.\n\n"
-                "А чтобы вы хотели заказать — сайт, Telegram-бота или AI-агента для сайта?"
+                f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Задавайте любые вопросы."
             )
+            # Отвечаем на первое сообщение (которое было номером) — но оно уже обработано, поэтому просто переходим к консультации
+            # Следующее сообщение клиента уже пойдёт через нейросеть.
             return
 
         # Первое сообщение от клиента — просим номер
-        user = event.message.sender
-        user_name = user.first_name or user.username or "Неизвестный"
         waiting_for_phone[user_id] = True
         await event.message.answer(
             f"Здравствуйте, {user_name}! 👋\n"
@@ -310,83 +315,26 @@ async def handle_message(event: MessageCreated):
         )
         return
 
-    # --- Этап 2: после сбора номера — ждём ответ на вопрос о заказе ---
-    if awaiting_order_type.get(user_id):
-        # Определяем выбор клиента
-        choice = None
-        if any(word in text.lower() for word in ["сайт", "лендинг", "визитка", "портфолио", "интернет-магазин", "универсальный"]):
-            choice = "site"
-        elif any(word in text.lower() for word in ["бот", "телеграм", "чат-бот", "telegram", "тг"]):
-            choice = "bot"
-        elif any(word in text.lower() for word in ["ai-агент", "агент", "виджет", "искусственный интеллект", "консультант"]):
-            choice = "agent"
+    # --- Этап 2: режим консультации (номер уже собран) ---
+    # Добавляем сообщение клиента в историю
+    history[user_id].append({"role": "user", "content": text})
 
-        if not choice:
-            await event.message.answer(
-                "Пожалуйста, выберите один из вариантов:\n"
-                "— сайт\n"
-                "— Telegram-бот\n"
-                "— AI-агент для сайта"
-            )
-            return
-
-        # Выбор сделан, сбрасываем состояние
-        awaiting_order_type[user_id] = False
-        client_choice[user_id] = choice
-
-        # Передаём управление нейросети
-        user = event.message.sender
-        user_name = user.first_name or user.username or "Неизвестный"
-        await event.message.answer(
-            f"Отлично! Теперь я помогу вам с выбором {choice}."
+    try:
+        response = client.chat.completions.create(
+            model="google/gemini-2.5-flash-lite",
+            messages=history[user_id],
+            max_tokens=800,
+            temperature=0.3,
         )
-
-        # Вызываем нейросеть с системным промптом
-        try:
-            response = client.chat.completions.create(
-                model="google/gemini-2.5-flash-lite",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": text}
-                ],
-                max_tokens=800,
-                temperature=0,
-            )
-            reply = response.choices[0].message.content
-            await event.message.answer(reply)
-        except Exception as e:
-            logging.error(f"Ошибка OpenRouter: {e}")
-            await event.message.answer(
-                "Извините, произошла техническая ошибка. Попробуйте ещё раз или свяжитесь с нами через контакты на сайте."
-            )
-        return
-
-    # --- Если номер уже собран, но состояние ожидания ответа сброшено — игнорируем (или можно напомнить) ---
-    # В этом случае клиент уже в диалоге с нейросетью, все сообщения обрабатываются ей.
-    # Но мы можем просто передать его в нейросеть, если он написал что-то ещё.
-    # Для упрощения: если клиент уже в диалоге с ИИ, передаём сообщение в нейросеть.
-    if phone_collected.get(user_id) and not awaiting_order_type.get(user_id):
-        try:
-            response = client.chat.completions.create(
-                model="google/gemini-2.5-flash-lite",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": text}
-                ],
-                max_tokens=800,
-                temperature=0,
-            )
-            reply = response.choices[0].message.content
-            await event.message.answer(reply)
-        except Exception as e:
-            logging.error(f"Ошибка OpenRouter: {e}")
-            await event.message.answer(
-                "Извините, произошла техническая ошибка. Попробуйте ещё раз или свяжитесь с нами через контакты на сайте."
-            )
-        return
-
-    # Если ничего не подошло — стандартный ответ (на случай ошибки)
-    await event.message.answer("Извините, я не понял. Давайте начнём заново. Напишите /cancel, если хотите отменить.")
+        reply = response.choices[0].message.content
+        # Добавляем ответ в историю
+        history[user_id].append({"role": "assistant", "content": reply})
+        await event.message.answer(reply)
+    except Exception as e:
+        logging.error(f"Ошибка OpenRouter: {e}")
+        await event.message.answer(
+            "Извините, произошла техническая ошибка. Попробуйте ещё раз или свяжитесь с нами через контакты на сайте."
+        )
 
 async def main():
     await dp.start_polling(bot)
