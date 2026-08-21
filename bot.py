@@ -16,22 +16,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Клавиатура с кнопкой "Отправить номер" (правильный синтаксис для maxapi) ---
-def get_contact_keyboard():
-    return {
-        "keyboard": [
-            [
-                {
-                    "text": "📱 Отправить номер",
-                    "request_contact": True
-                }
-            ]
-        ],
-        "resize_keyboard": True,
-        "one_time_keyboard": True
-    }
-
-# --- Функция отправки письма ---
+# --- Функция отправки письма с номером ---
 def send_phone_email(user_name, user_id, phone):
     subject = f"Новый контакт из MAX: {user_name}"
     body = f"Имя: {user_name}\nID: {user_id}\nТелефон: {phone}"
@@ -66,50 +51,41 @@ def log_to_google_sheet(user_name, user_id, phone):
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Состояние: ждём ли номер ---
+# --- Состояния: кто ждёт номер ---
 waiting_for_phone = {}
 
-# --- Обработчик первого сообщения (отправляем клавиатуру) ---
+# --- Обработчик всех текстовых сообщений ---
 @dp.message_created(F.message.body.text)
-async def ask_contact(event: MessageCreated):
+async def handle_message(event: MessageCreated):
     user_id = event.message.sender.user_id
     text = event.message.body.text
 
-    # Игнорируем команды
+    # Пропускаем команды (если они есть)
     if text.startswith("/"):
         return
 
-    # Если уже ждём номер, не отправляем клавиатуру повторно
+    # Если пользователь уже в режиме ожидания номера
     if waiting_for_phone.get(user_id):
+        # Считаем, что он отправил номер (берём любой текст как номер)
+        phone = text.strip()
+        user = event.message.sender
+        user_name = user.first_name or user.username or "Неизвестный"
+        send_phone_email(user_name, user_id, phone)
+        log_to_google_sheet(user_name, user_id, phone)
+        await event.message.answer(
+            "Спасибо! Номер получен. Сергей свяжется с вами в MAX в ближайшее время."
+        )
+        waiting_for_phone[user_id] = False  # сбрасываем состояние
         return
 
-    # Отправляем клавиатуру
-    waiting_for_phone[user_id] = True
-    await event.message.answer(
-        "Здравствуйте! 👋\n"
-        "Нажмите кнопку ниже, чтобы отправить ваш номер телефона.\n"
-        "Сергей свяжется с вами в MAX в ближайшее время.",
-        reply_markup=get_contact_keyboard()
-    )
-
-# --- Обработчик контакта (когда клиент нажимает кнопку) ---
-@dp.message_created(F.message.contact)
-async def handle_contact(event: MessageCreated):
-    user_id = event.message.sender.user_id
+    # Если это первое сообщение от пользователя
     user = event.message.sender
     user_name = user.first_name or user.username or "Неизвестный"
-    contact = event.message.contact
-    phone_number = contact.phone_number
-
-    # Отправляем данные
-    send_phone_email(user_name, user_id, phone_number)
-    log_to_google_sheet(user_name, user_id, phone_number)
-
-    # Благодарим и сбрасываем состояние
-    waiting_for_phone[user_id] = False
+    waiting_for_phone[user_id] = True
     await event.message.answer(
-        f"Спасибо, {user_name}! Номер получен. Сергей свяжется с вами в ближайшее время.",
-        reply_markup=None  # убираем клавиатуру
+        f"Здравствуйте, {user_name}! 👋\n"
+        "Пожалуйста, напишите ваш номер телефона в ответном сообщении.\n"
+        
     )
 
 # --- Запуск бота ---
