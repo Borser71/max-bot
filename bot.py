@@ -97,7 +97,7 @@ def log_order_to_sheet(user_name, user_id, phone, services, total, status="Ож�
         logging.error(f"Ошибка соединения с Apps Script (заказ): {e}")
 
 def send_order_email(user_name, user_id, phone, services, total, payment_url):
-    subject = f"Новый заказ в Borisov Store от {user_name}"
+    subject = f"Новый заказ в Borisov Store из MAX от {user_name}"
     body = (
         f"Имя: {user_name}\n"
         f"ID: {user_id}\n"
