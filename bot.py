@@ -62,12 +62,9 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
         return None
 
 # --- ССЫЛКИ НА APPS SCRIPT ---
-# СТАРАЯ ссылка (сбор номеров) — замените на свою
 OLD_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxMCsGnzNxz-Ah597UO9xO8VZhqntUCKlx9MQwPqZcQDt8ipoqBWfvv7YA7DDgR-Wnr6Q/exec"
-# НОВАЯ ссылка (заказы) — замените на свою новую ссылку
 NEW_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx2W3sWZlj7UAYL24zF6-hVy_WOk9mfnTfR1KjOQr6v0hsN7b7a2YBWjD7_OTlOZKC63Q/exec"
 
-# --- Функция записи номера в таблицу (старая ссылка) ---
 def log_phone_to_sheet(user_name, user_id, phone):
     import requests
     payload = {"username": user_name, "user_id": user_id, "text": phone}
@@ -80,7 +77,6 @@ def log_phone_to_sheet(user_name, user_id, phone):
     except Exception as e:
         logging.error(f"Ошибка соединения с Apps Script (номер): {e}")
 
-# --- Функция записи заказа в таблицу (новая ссылка) ---
 def log_order_to_sheet(user_name, user_id, phone, services, total, status="Ожидает оплаты"):
     import requests
     payload = {
@@ -100,7 +96,6 @@ def log_order_to_sheet(user_name, user_id, phone, services, total, status="Ож�
     except Exception as e:
         logging.error(f"Ошибка соединения с Apps Script (заказ): {e}")
 
-# --- Функция отправки письма с заказом ---
 def send_order_email(user_name, user_id, phone, services, total, payment_url):
     subject = f"Новый заказ в Borisov Store от {user_name}"
     body = (
@@ -125,7 +120,7 @@ def send_order_email(user_name, user_id, phone, services, total, payment_url):
     except Exception as e:
         logging.error(f"Ошибка отправки письма с заказом: {e}")
 
-# --- СИСТЕМНЫЙ ПРОМПТ (с инструкцией JSON) ---
+# --- СИСТЕМНЫЙ ПРОМПТ (исправлен: убрана "Примерная", удалена мёртвая фраза) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -261,15 +256,15 @@ SYSTEM_PROMPT = """
 1. Поздоровайся, скажи про комбинацию услуг, спроси: сайт или бот?
 2. Уточни тип (из списка выше).
 3. Предложи дополнительные услуги.
-4. Когда клиент выбрал — назови примерную сумму (суммируй цены выбранных услуг). Скажи:
-   «Примерная стоимость вашего заказа: X ₽. Точную сумму вам выдаст — ЮKassa.»
+4. Когда клиент выбрал — назови общую сумму. Скажи:
+   «Стоимость вашего заказа: X ₽. Точную сумму вам выдаст — ЮKassa.»
+   (Не используй слово «примерная», только точную сумму.)
 5. Спроси: «Вы согласны с этим выбором?»
 6. Если да — скажи:
    «Отлично! Перед оформлением заказа прошу вас ознакомиться с договором публичной оферты: https://borisov.store/offer/.
    В ней прописаны все условия заказа, оплаты и наши обязательства.
    Подтвердите, пожалуйста, что вы ознакомились с офертой.»
-7. Если клиент подтверждает — скажи:
-   "Спасибо! У нас можно оформить заказ 2 способами: через кнопку «Заказать» на главном сайте https://borisov.store/ или на сайте 'Базовые и дополнительные услуги' https://borisov.store/services/. Более подробную информацию смотрите в оферте (пункт 3.7)."  
+7. Если клиент подтверждает — создавай платёж и отправляй ссылку на оплату.
 8. Если клиент не подтверждает ознакомление — вежливо напомни:
    «Пожалуйста, ознакомьтесь с публичной офертой: https://borisov.store/offer/. Это обязательное условие для оформления заказа.»
 
@@ -345,6 +340,10 @@ async def handle_message(event: MessageCreated):
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
         elif waiting_for_confirmation.get(user_id):
             waiting_for_confirmation[user_id] = False
+            # Сброс выбора, чтобы клиент мог начать заново
+            history[user_id] = []
+            calculated_total[user_id] = 0.0
+            order_services[user_id] = ""
             await event.message.answer("Вы отменили заказ. Напишите что-нибудь, чтобы начать заново.")
         elif waiting_for_offer.get(user_id):
             waiting_for_offer[user_id] = False
@@ -374,7 +373,6 @@ async def handle_message(event: MessageCreated):
                 )
                 return
 
-            # Номер принят
             phone = text
             user_phone[user_id] = phone
             send_phone_email(user_name, user_id, phone)
@@ -382,7 +380,6 @@ async def handle_message(event: MessageCreated):
             phone_collected[user_id] = True
             waiting_for_phone[user_id] = False
 
-            # Инициализируем историю (сообщаем нейросети, что номер получен)
             history[user_id] = [
                 {"role": "system", "content": f"Номер клиента уже получен: {phone}. Не спрашивай его повторно."}
             ]
@@ -392,7 +389,6 @@ async def handle_message(event: MessageCreated):
             )
             return
 
-        # Первое сообщение — просим номер
         waiting_for_phone[user_id] = True
         await event.message.answer(
             f"Здравствуйте, {user_name}! 👋\n"
@@ -415,7 +411,6 @@ async def handle_message(event: MessageCreated):
             payment_url = create_payment(total, description, return_url)
 
             if payment_url:
-                # Записываем заказ и отправляем письмо
                 phone = user_phone.get(user_id, "неизвестно")
                 services_text = order_services.get(user_id, "Без описания")
                 log_order_to_sheet(user_name, user_id, phone, services_text, total)
@@ -437,9 +432,10 @@ async def handle_message(event: MessageCreated):
             )
             return
 
-    # --- Если мы ждём подтверждение суммы (переход к оферте) ---
+    # --- Если мы ждём подтверждение суммы ---
     if waiting_for_confirmation.get(user_id):
         if text.lower() in ["да", "согласен", "ок"]:
+            # Переходим к оферте
             waiting_for_confirmation[user_id] = False
             waiting_for_offer[user_id] = True
             await event.message.answer(
@@ -449,8 +445,19 @@ async def handle_message(event: MessageCreated):
                 "Подтвердите, пожалуйста, что вы ознакомились с офертой (напишите «да»)."
             )
             return
+        elif text.lower() in ["нет", "не согласен", "не"]:
+            # Клиент не согласен с суммой — сбрасываем состояние и предлагаем уточнить заказ
+            waiting_for_confirmation[user_id] = False
+            # Сбрасываем историю, чтобы клиент мог заново выбрать услуги
+            history[user_id] = []
+            calculated_total[user_id] = 0.0
+            order_services[user_id] = ""
+            await event.message.answer(
+                "Хорошо, давайте пересчитаем ваш заказ. Напишите, что вы хотите заказать (тип сайта или бота и номера дополнительных услуг)."
+            )
+            return
         else:
-            await event.message.answer("Пожалуйста, ответьте «да», если вы согласны с суммой заказа.")
+            await event.message.answer("Пожалуйста, ответьте «да» или «нет».")
             return
 
     # --- Этап 2: режим консультации с нейросетью ---
