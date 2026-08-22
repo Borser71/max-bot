@@ -61,14 +61,69 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
         logging.error(f"Ошибка создания платежа: {e}")
         return None
 
-# --- Функции для отправки заказа (пока закомментированы, можно включить позже) ---
-def send_order_email(user_name, user_id, phone, services, total, payment_url):
-    # pass  # раскомментируйте, когда будете готовы
-    pass
+# --- ССЫЛКИ НА APPS SCRIPT ---
+# СТАРАЯ ссылка (сбор номеров) — замените на свою
+OLD_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxMCsGnzNxz-Ah597UO9xO8VZhqntUCKlx9MQwPqZcQDt8ipoqBWfvv7YA7DDgR-Wnr6Q/exec"
+# НОВАЯ ссылка (заказы) — замените на свою новую ссылку
+NEW_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx2W3sWZlj7UAYL24zF6-hVy_WOk9mfnTfR1KjOQr6v0hsN7b7a2YBWjD7_OTlOZKC63Q/exec"
 
-def log_order_to_google_sheet(user_name, user_id, phone, services, total, status="Ожидает оплаты"):
-    # pass  # раскомментируйте, когда будете готовы
-    pass
+# --- Функция записи номера в таблицу (старая ссылка) ---
+def log_phone_to_sheet(user_name, user_id, phone):
+    import requests
+    payload = {"username": user_name, "user_id": user_id, "text": phone}
+    try:
+        r = requests.post(OLD_SCRIPT_URL, json=payload, timeout=5)
+        if r.status_code == 200:
+            logging.info("Номер записан в Google Таблицу")
+        else:
+            logging.error(f"Ошибка записи номера: {r.status_code}")
+    except Exception as e:
+        logging.error(f"Ошибка соединения с Apps Script (номер): {e}")
+
+# --- Функция записи заказа в таблицу (новая ссылка) ---
+def log_order_to_sheet(user_name, user_id, phone, services, total, status="Ожидает оплаты"):
+    import requests
+    payload = {
+        "username": user_name,
+        "user_id": user_id,
+        "phone": phone,
+        "services": services,
+        "total": total,
+        "status": status
+    }
+    try:
+        r = requests.post(NEW_SCRIPT_URL, json=payload, timeout=5)
+        if r.status_code == 200:
+            logging.info("Заказ записан в Google Таблицу")
+        else:
+            logging.error(f"Ошибка записи заказа: {r.status_code}")
+    except Exception as e:
+        logging.error(f"Ошибка соединения с Apps Script (заказ): {e}")
+
+# --- Функция отправки письма с заказом ---
+def send_order_email(user_name, user_id, phone, services, total, payment_url):
+    subject = f"Новый заказ в Borisov Store от {user_name}"
+    body = (
+        f"Имя: {user_name}\n"
+        f"ID: {user_id}\n"
+        f"Телефон: {phone}\n"
+        f"Заказ: {services}\n"
+        f"Сумма: {total} ₽\n"
+        f"Ссылка на оплату: {payment_url}\n"
+        f"Статус: Ожидает оплаты"
+    )
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
+        logging.info("Письмо с заказом отправлено")
+    except Exception as e:
+        logging.error(f"Ошибка отправки письма с заказом: {e}")
 
 # --- СИСТЕМНЫЙ ПРОМПТ (с инструкцией JSON) ---
 SYSTEM_PROMPT = """
@@ -262,19 +317,6 @@ def send_phone_email(user_name, user_id, phone):
     except Exception as e:
         logging.error(f"Ошибка отправки email: {e}")
 
-def log_to_google_sheet(user_name, user_id, phone):
-    import requests
-    url = "https://script.google.com/macros/s/AKfycbxMCsGnzNxz-Ah597UO9xO8VZhqntUCKlx9MQwPqZcQDt8ipoqBWfvv7YA7DDgR-Wnr6Q/exec"
-    payload = {"username": user_name, "user_id": user_id, "text": phone}
-    try:
-        r = requests.post(url, json=payload, timeout=5)
-        if r.status_code == 200:
-            logging.info("Номер записан в Google Таблицу")
-        else:
-            logging.error(f"Ошибка записи: {r.status_code}")
-    except Exception as e:
-        logging.error(f"Ошибка соединения с Apps Script: {e}")
-
 # --- Инициализация бота ---
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -282,11 +324,12 @@ dp = Dispatcher()
 # --- Состояния ---
 waiting_for_phone = {}          # user_id -> True/False (ждём номер)
 phone_collected = {}            # user_id -> True/False (номер уже собран)
+user_phone = {}                 # user_id -> номер телефона
 history = {}                    # user_id -> список сообщений для нейросети
 waiting_for_confirmation = {}   # user_id -> True/False (ждём "да" на сумму)
 waiting_for_offer = {}          # user_id -> True/False (ждём "да" на оферту)
 calculated_total = {}           # user_id -> float (рассчитанная сумма)
-order_services = {}             # user_id -> str (текстовое описание заказа для таблицы/почты)
+order_services = {}             # user_id -> str (текстовое описание заказа)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
@@ -308,6 +351,7 @@ async def handle_message(event: MessageCreated):
             await event.message.answer("Вы отменили оформление заказа. Если передумаете, напишите снова.")
         elif phone_collected.get(user_id):
             phone_collected[user_id] = False
+            user_phone[user_id] = ""
             history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
@@ -332,8 +376,9 @@ async def handle_message(event: MessageCreated):
 
             # Номер принят
             phone = text
+            user_phone[user_id] = phone
             send_phone_email(user_name, user_id, phone)
-            log_to_google_sheet(user_name, user_id, phone)
+            log_phone_to_sheet(user_name, user_id, phone)
             phone_collected[user_id] = True
             waiting_for_phone[user_id] = False
 
@@ -359,7 +404,6 @@ async def handle_message(event: MessageCreated):
     # --- Если мы ждём подтверждение оферты ---
     if waiting_for_offer.get(user_id):
         if text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
-            # Создаём платёж с рассчитанной суммой
             total = calculated_total.get(user_id, 0.0)
             if total <= 0:
                 await event.message.answer("Извините, не удалось определить сумму заказа. Попробуйте ещё раз.")
@@ -371,9 +415,11 @@ async def handle_message(event: MessageCreated):
             payment_url = create_payment(total, description, return_url)
 
             if payment_url:
-                # Здесь можно вызвать функции отправки заказа на почту и в таблицу
-                # send_order_email(user_name, user_id, phone, order_services.get(user_id, ""), total, payment_url)
-                # log_order_to_google_sheet(user_name, user_id, phone, order_services.get(user_id, ""), total)
+                # Записываем заказ и отправляем письмо
+                phone = user_phone.get(user_id, "неизвестно")
+                services_text = order_services.get(user_id, "Без описания")
+                log_order_to_sheet(user_name, user_id, phone, services_text, total)
+                send_order_email(user_name, user_id, phone, services_text, total, payment_url)
 
                 await event.message.answer(
                     f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
@@ -394,7 +440,6 @@ async def handle_message(event: MessageCreated):
     # --- Если мы ждём подтверждение суммы (переход к оферте) ---
     if waiting_for_confirmation.get(user_id):
         if text.lower() in ["да", "согласен", "ок"]:
-            # Переходим к оферте
             waiting_for_confirmation[user_id] = False
             waiting_for_offer[user_id] = True
             await event.message.answer(
@@ -431,7 +476,6 @@ async def handle_message(event: MessageCreated):
                 addons = data.get("addons", [])
 
                 if service in ["site", "bot"]:
-                    # Рассчитываем сумму
                     total = 0.0
                     services_text = ""
                     if service == "site":
@@ -475,11 +519,9 @@ async def handle_message(event: MessageCreated):
                         for a in addons:
                             total += bot_addons.get(a, 0)
 
-                    # Сохраняем сумму и описание заказа
                     calculated_total[user_id] = total
                     order_services[user_id] = services_text
 
-                    # Запрашиваем согласие
                     waiting_for_confirmation[user_id] = True
                     await event.message.answer(
                         f"Стоимость вашего заказа: {int(total)} ₽.\n"
@@ -487,13 +529,10 @@ async def handle_message(event: MessageCreated):
                         f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
                     )
                 else:
-                    # service не распознан
                     await event.message.answer(reply)
             else:
-                # Не JSON — просто текст
                 await event.message.answer(reply)
         except json.JSONDecodeError:
-            # Невалидный JSON — выводим как текст
             await event.message.answer(reply)
 
     except Exception as e:
