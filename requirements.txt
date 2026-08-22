@@ -2,4 +2,4 @@ maxapi
 requests
 python-dotenv
 openai
-yookassa-sdk-python
+yookassa
