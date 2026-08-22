@@ -3,10 +3,12 @@ import asyncio
 import logging
 import smtplib
 import re
+import uuid
 from email.mime.text import MIMEText
 from maxapi import Bot, Dispatcher, F
 from maxapi.types import MessageCreated
 from openai import OpenAI
+from yookassa import Configuration, Payment
 
 # --- Переменные окружения ---
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
@@ -16,11 +18,21 @@ EMAIL_TO = os.getenv("EMAIL_TO")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 
 if not OPENROUTER_API_KEY:
     raise RuntimeError("Не задан OPENROUTER_API_KEY в переменных окружения")
 
 logging.basicConfig(level=logging.INFO)
+
+# --- Настройка ЮKassa ---
+if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+    Configuration.account_id = YOOKASSA_SHOP_ID
+    Configuration.secret_key = YOOKASSA_SECRET_KEY
+    logging.info("ЮKassa настроена")
+else:
+    logging.warning("ЮKassa не настроена: отсутствуют shopId или secretKey")
 
 # --- Клиент OpenRouter ---
 client = OpenAI(
@@ -28,7 +40,33 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
-# --- СИСТЕМНЫЙ ПРОМПТ (без HTML, только сайт и бот) ---
+# --- Функция создания платежа ---
+def create_payment(amount: float, description: str, return_url: str) -> str | None:
+    """Создаёт платёж в ЮKassa и возвращает ссылку на оплату."""
+    if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
+        logging.error("ЮKassa не настроена")
+        return None
+
+    idempotence_key = str(uuid.uuid4())
+    try:
+        payment = Payment.create({
+            "amount": {
+                "value": f"{amount:.2f}",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": return_url
+            },
+            "description": description,
+            "capture": True
+        }, idempotence_key)
+        return payment.confirmation.confirmation_url
+    except Exception as e:
+        logging.error(f"Ошибка создания платежа: {e}")
+        return None
+
+# --- СИСТЕМНЫЙ ПРОМПТ (без изменений) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -232,6 +270,7 @@ dp = Dispatcher()
 waiting_for_phone = {}       # user_id -> True/False (ждём номер)
 phone_collected = {}         # user_id -> True/False (номер уже собран)
 history = {}                 # user_id -> список сообщений для нейросети
+waiting_for_offer = {}       # user_id -> True/False (ждём подтверждение оферты)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
@@ -245,6 +284,9 @@ async def handle_message(event: MessageCreated):
         if waiting_for_phone.get(user_id):
             waiting_for_phone[user_id] = False
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
+        elif waiting_for_offer.get(user_id):
+            waiting_for_offer[user_id] = False
+            await event.message.answer("Вы отменили оформление заказа. Если передумаете, напишите снова.")
         elif phone_collected.get(user_id):
             phone_collected[user_id] = False
             history[user_id] = []
@@ -296,6 +338,36 @@ async def handle_message(event: MessageCreated):
     # --- Этап 2: режим консультации с нейросетью ---
     history[user_id].append({"role": "user", "content": text})
 
+    # Проверяем, не является ли сообщение подтверждением оферты
+    # Если мы ждём подтверждение, и клиент написал "да" или "согласен"
+    if waiting_for_offer.get(user_id) and text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
+        # Генерируем платёж
+        # Пока фиксированная сумма для теста — 8 ₽
+        total = 8.0
+        description = "Тестовый платёж (лендинг за 8 ₽)"
+        return_url = "https://borisov.store/thanks"
+        payment_url = create_payment(total, description, return_url)
+        
+        if payment_url:
+            await event.message.answer(
+                f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
+                "После оплаты мы начнём работу над вашим заказом."
+            )
+        else:
+            await event.message.answer(
+                "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
+            )
+        # Сбрасываем состояние, чтобы не создавать повторный платёж
+        waiting_for_offer[user_id] = False
+        return
+
+    # Если мы ждём подтверждение оферты, но клиент ответил не "да"
+    if waiting_for_offer.get(user_id):
+        await event.message.answer(
+            "Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да» или «согласен»."
+        )
+        return
+
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[user_id]
         response = client.chat.completions.create(
@@ -306,6 +378,12 @@ async def handle_message(event: MessageCreated):
         )
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
+        
+        # Проверяем, не отправила ли нейросеть оферту (чтобы переключить состояние)
+        # Если в ответе есть ссылка на оферту и предложение подтвердить — включаем состояние ожидания
+        if "оферт" in reply.lower() and "подтвердит" in reply.lower():
+            waiting_for_offer[user_id] = True
+        
         await event.message.answer(reply)
     except Exception as e:
         logging.error(f"Ошибка OpenRouter: {e}")
