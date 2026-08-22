@@ -6,6 +6,7 @@ import re
 import uuid
 import json
 from email.mime.text import MIMEText
+from datetime import datetime
 from maxapi import Bot, Dispatcher, F
 from maxapi.types import MessageCreated
 from openai import OpenAI
@@ -60,6 +61,15 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
         logging.error(f"Ошибка создания платежа: {e}")
         return None
 
+# --- Функции для отправки заказа (пока закомментированы, можно включить позже) ---
+def send_order_email(user_name, user_id, phone, services, total, payment_url):
+    # pass  # раскомментируйте, когда будете готовы
+    pass
+
+def log_order_to_google_sheet(user_name, user_id, phone, services, total, status="Ожидает оплаты"):
+    # pass  # раскомментируйте, когда будете готовы
+    pass
+
 # --- СИСТЕМНЫЙ ПРОМПТ (с инструкцией JSON) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
@@ -107,7 +117,6 @@ SYSTEM_PROMPT = """
 5) Интернет-магазин — 24 000 ₽ (каталог, корзина, оплата).
 6) Универсальный — 40 000 ₽ (комбинация визитки, портфолио и магазина, приём платежей).
 
-Примеры работ можно посмотреть в разделе "Портфолио" на сайте.
 Напишите номер или название типа сайта, который вам подходит.
 
 Дождись, пока клиент назовёт номер или название конкретного типа сайта (например, "3", "визитка", "3. Визитка"). Только ПОСЛЕ ЭТОГО, отдельным следующим сообщением, коротко подтверди выбор и спроси:
@@ -277,6 +286,7 @@ history = {}                    # user_id -> список сообщений д�
 waiting_for_confirmation = {}   # user_id -> True/False (ждём "да" на сумму)
 waiting_for_offer = {}          # user_id -> True/False (ждём "да" на оферту)
 calculated_total = {}           # user_id -> float (рассчитанная сумма)
+order_services = {}             # user_id -> str (текстовое описание заказа для таблицы/почты)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
@@ -300,6 +310,7 @@ async def handle_message(event: MessageCreated):
             phone_collected[user_id] = False
             history[user_id] = []
             calculated_total[user_id] = 0.0
+            order_services[user_id] = ""
             await event.message.answer("Диалог сброшен. Напишите что-нибудь, чтобы начать заново.")
         else:
             await event.message.answer("Нечего отменять.")
@@ -332,7 +343,7 @@ async def handle_message(event: MessageCreated):
             ]
 
             await event.message.answer(
-                f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Задавайте любые вопросы."
+                f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Что бы вы хотели заказать — сайт или Telegram-бота?"
             )
             return
 
@@ -360,6 +371,10 @@ async def handle_message(event: MessageCreated):
             payment_url = create_payment(total, description, return_url)
 
             if payment_url:
+                # Здесь можно вызвать функции отправки заказа на почту и в таблицу
+                # send_order_email(user_name, user_id, phone, order_services.get(user_id, ""), total, payment_url)
+                # log_order_to_google_sheet(user_name, user_id, phone, order_services.get(user_id, ""), total)
+
                 await event.message.answer(
                     f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
                     "После оплаты мы начнём работу над вашим заказом."
@@ -418,26 +433,51 @@ async def handle_message(event: MessageCreated):
                 if service in ["site", "bot"]:
                     # Рассчитываем сумму
                     total = 0.0
+                    services_text = ""
                     if service == "site":
+                        site_names = {
+                            "len": "Лендинг",
+                            "info": "Информационный сайт",
+                            "vizit": "Визитка",
+                            "portfolio": "Портфолио",
+                            "shop": "Интернет-магазин",
+                            "universal": "Универсальный сайт"
+                        }
                         site_prices = {
                             "len": 8000, "info": 12000, "vizit": 16000,
                             "portfolio": 20000, "shop": 24000, "universal": 40000
                         }
                         total += site_prices.get(site_type, 0)
+                        services_text = site_names.get(site_type, "Сайт")
                         site_addons = {
                             1:0, 2:1600, 3:1600, 4:2400, 5:2400, 6:2400,
                             7:2400, 8:2400, 9:2400, 10:4000, 11:4000, 12:4000, 13:4000
                         }
+                        addon_names = {
+                            1: "favicon", 2: "Форма обратной связи", 3: "Карта проезда",
+                            4: "Еще 6 товаров", 5: "Оферта", 6: "Политика конфиденциальности",
+                            7: "Блок отзывов", 8: "Яндекс-Метрика", 9: "Виджет звонка",
+                            10: "Еще 2 товара", 11: "Автоплатеж", 12: "Google Таблица", 13: "Календарь"
+                        }
+                        if addons:
+                            addon_list = [addon_names.get(a, str(a)) for a in addons]
+                            services_text += " + " + ", ".join(addon_list)
                         for a in addons:
                             total += site_addons.get(a, 0)
                     elif service == "bot":
                         total += 12000
+                        services_text = "Telegram-бот"
                         bot_addons = {1:4000, 2:4000, 3:4000}
+                        addon_names_bot = {1: "Google Таблица", 2: "Календарь", 3: "Автоплатеж"}
+                        if addons:
+                            addon_list = [addon_names_bot.get(a, str(a)) for a in addons]
+                            services_text += " + " + ", ".join(addon_list)
                         for a in addons:
                             total += bot_addons.get(a, 0)
 
-                    # Сохраняем сумму
+                    # Сохраняем сумму и описание заказа
                     calculated_total[user_id] = total
+                    order_services[user_id] = services_text
 
                     # Запрашиваем согласие
                     waiting_for_confirmation[user_id] = True
