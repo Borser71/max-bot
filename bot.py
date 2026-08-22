@@ -4,6 +4,7 @@ import logging
 import smtplib
 import re
 import uuid
+import json
 from email.mime.text import MIMEText
 from maxapi import Bot, Dispatcher, F
 from maxapi.types import MessageCreated
@@ -42,7 +43,6 @@ client = OpenAI(
 
 # --- Функция создания платежа ---
 def create_payment(amount: float, description: str, return_url: str) -> str | None:
-    """Создаёт платёж в ЮKassa и возвращает ссылку на оплату."""
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
         logging.error("ЮKassa не настроена")
         return None
@@ -50,14 +50,8 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
     idempotence_key = str(uuid.uuid4())
     try:
         payment = Payment.create({
-            "amount": {
-                "value": f"{amount:.2f}",
-                "currency": "RUB"
-            },
-            "confirmation": {
-                "type": "redirect",
-                "return_url": return_url
-            },
+            "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+            "confirmation": {"type": "redirect", "return_url": return_url},
             "description": description,
             "capture": True
         }, idempotence_key)
@@ -66,7 +60,7 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
         logging.error(f"Ошибка создания платежа: {e}")
         return None
 
-# --- СИСТЕМНЫЙ ПРОМПТ (без изменений) ---
+# --- СИСТЕМНЫЙ ПРОМПТ (с инструкцией JSON) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -227,6 +221,16 @@ SYSTEM_PROMPT = """
 - Если клиент говорит «понял», «ок», «да», «хорошо», «продолжим» и подобное — продолжай сценарий с текущего шага, не задавай вопрос «сайт или бот?» повторно, если выбор уже сделан.
 - Если клиент спрашивает «ты кто?», «кто ты?», «представься», «расскажи о себе» — НЕМЕДЛЕННО ответь: «Я — консультант компании Borisov Store. Моя задача — помочь вам выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Что бы вы хотели заказать — сайт или Telegram-бота?» — и продолжай сценарий.
 - Если клиент говорит «бесплатно», «дешевле», «скидку», «можно ли дешевле», «бюджет» или подобное — вежливо объясни, что все цены фиксированы и указаны на сайте. Предложи выбрать тариф, который подходит под бюджет, или свяжитесь с нами для обсуждения индивидуальных условий. Продолжи дальше следовать сценарию. 
+
+Если клиент явно выбрал услугу (назвал тип сайта, бота или номера доп. услуг), ты должен вернуть ТОЛЬКО JSON в формате:
+{"service": "site", "site_type": "vizitka", "addons": [3, 7, 12]}
+
+Возможные значения:
+- service: "site" или "bot"
+- site_type: "len" (лендинг), "info" (информационный), "vizit" (визитка), "portfolio" (портфолио), "shop" (интернет-магазин), "universal" (универсальный) — только если service = "site"
+- addons: массив номеров дополнительных услуг (например, [3, 7, 12]) — если их нет, то []
+
+Если клиент задаёт вопрос, не связанный с выбором, или ты не уверен в выборе, верни обычный текст (не JSON).
 """
 
 # --- Вспомогательные функции ---
@@ -267,10 +271,12 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # --- Состояния ---
-waiting_for_phone = {}       # user_id -> True/False (ждём номер)
-phone_collected = {}         # user_id -> True/False (номер уже собран)
-history = {}                 # user_id -> список сообщений для нейросети
-waiting_for_offer = {}       # user_id -> True/False (ждём подтверждение оферты)
+waiting_for_phone = {}          # user_id -> True/False (ждём номер)
+phone_collected = {}            # user_id -> True/False (номер уже собран)
+history = {}                    # user_id -> список сообщений для нейросети
+waiting_for_confirmation = {}   # user_id -> True/False (ждём "да" на сумму)
+waiting_for_offer = {}          # user_id -> True/False (ждём "да" на оферту)
+calculated_total = {}           # user_id -> float (рассчитанная сумма)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
@@ -284,12 +290,16 @@ async def handle_message(event: MessageCreated):
         if waiting_for_phone.get(user_id):
             waiting_for_phone[user_id] = False
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
+        elif waiting_for_confirmation.get(user_id):
+            waiting_for_confirmation[user_id] = False
+            await event.message.answer("Вы отменили заказ. Напишите что-нибудь, чтобы начать заново.")
         elif waiting_for_offer.get(user_id):
             waiting_for_offer[user_id] = False
             await event.message.answer("Вы отменили оформление заказа. Если передумаете, напишите снова.")
         elif phone_collected.get(user_id):
             phone_collected[user_id] = False
             history[user_id] = []
+            calculated_total[user_id] = 0.0
             await event.message.answer("Диалог сброшен. Напишите что-нибудь, чтобы начать заново.")
         else:
             await event.message.answer("Нечего отменять.")
@@ -335,38 +345,56 @@ async def handle_message(event: MessageCreated):
         )
         return
 
-    # --- Этап 2: режим консультации с нейросетью ---
-    history[user_id].append({"role": "user", "content": text})
+    # --- Если мы ждём подтверждение оферты ---
+    if waiting_for_offer.get(user_id):
+        if text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
+            # Создаём платёж с рассчитанной суммой
+            total = calculated_total.get(user_id, 0.0)
+            if total <= 0:
+                await event.message.answer("Извините, не удалось определить сумму заказа. Попробуйте ещё раз.")
+                waiting_for_offer[user_id] = False
+                return
 
-    # Проверяем, не является ли сообщение подтверждением оферты
-    # Если мы ждём подтверждение, и клиент написал "да" или "согласен"
-    if waiting_for_offer.get(user_id) and text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
-        # Генерируем платёж
-        # Пока фиксированная сумма для теста — 8 ₽
-        total = 8.0
-        description = "Тестовый платёж (лендинг за 8 ₽)"
-        return_url = "https://borisov.store/thanks"
-        payment_url = create_payment(total, description, return_url)
-        
-        if payment_url:
-            await event.message.answer(
-                f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
-                "После оплаты мы начнём работу над вашим заказом."
-            )
+            description = "Заказ в Borisov Store"
+            return_url = "https://borisov.store/thank-you"
+            payment_url = create_payment(total, description, return_url)
+
+            if payment_url:
+                await event.message.answer(
+                    f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
+                    "После оплаты мы начнём работу над вашим заказом."
+                )
+            else:
+                await event.message.answer(
+                    "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
+                )
+            waiting_for_offer[user_id] = False
+            return
         else:
             await event.message.answer(
-                "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
+                "Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да» или «согласен»."
             )
-        # Сбрасываем состояние, чтобы не создавать повторный платёж
-        waiting_for_offer[user_id] = False
-        return
+            return
 
-    # Если мы ждём подтверждение оферты, но клиент ответил не "да"
-    if waiting_for_offer.get(user_id):
-        await event.message.answer(
-            "Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да» или «согласен»."
-        )
-        return
+    # --- Если мы ждём подтверждение суммы (переход к оферте) ---
+    if waiting_for_confirmation.get(user_id):
+        if text.lower() in ["да", "согласен", "ок"]:
+            # Переходим к оферте
+            waiting_for_confirmation[user_id] = False
+            waiting_for_offer[user_id] = True
+            await event.message.answer(
+                "Отлично! Перед оформлением заказа прошу вас ознакомиться с договором публичной оферты:\n"
+                "https://borisov.store/offer/\n\n"
+                "В ней прописаны все условия заказа, оплаты и наши обязательства.\n"
+                "Подтвердите, пожалуйста, что вы ознакомились с офертой (напишите «да»)."
+            )
+            return
+        else:
+            await event.message.answer("Пожалуйста, ответьте «да», если вы согласны с суммой заказа.")
+            return
+
+    # --- Этап 2: режим консультации с нейросетью ---
+    history[user_id].append({"role": "user", "content": text})
 
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[user_id]
@@ -378,13 +406,56 @@ async def handle_message(event: MessageCreated):
         )
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
-        
-        # Проверяем, не отправила ли нейросеть оферту (чтобы переключить состояние)
-        # Если в ответе есть ссылка на оферту и предложение подтвердить — включаем состояние ожидания
-        if "оферт" in reply.lower() and "подтвердит" in reply.lower():
-            waiting_for_offer[user_id] = True
-        
-        await event.message.answer(reply)
+
+        # --- Попытка распарсить JSON ---
+        try:
+            data = json.loads(reply)
+            if isinstance(data, dict) and "service" in data:
+                service = data.get("service")
+                site_type = data.get("site_type")
+                addons = data.get("addons", [])
+
+                if service in ["site", "bot"]:
+                    # Рассчитываем сумму
+                    total = 0.0
+                    if service == "site":
+                        site_prices = {
+                            "len": 8000, "info": 12000, "vizit": 16000,
+                            "portfolio": 20000, "shop": 24000, "universal": 40000
+                        }
+                        total += site_prices.get(site_type, 0)
+                        site_addons = {
+                            1:0, 2:1600, 3:1600, 4:2400, 5:2400, 6:2400,
+                            7:2400, 8:2400, 9:2400, 10:4000, 11:4000, 12:4000, 13:4000
+                        }
+                        for a in addons:
+                            total += site_addons.get(a, 0)
+                    elif service == "bot":
+                        total += 12000
+                        bot_addons = {1:4000, 2:4000, 3:4000}
+                        for a in addons:
+                            total += bot_addons.get(a, 0)
+
+                    # Сохраняем сумму
+                    calculated_total[user_id] = total
+
+                    # Запрашиваем согласие
+                    waiting_for_confirmation[user_id] = True
+                    await event.message.answer(
+                        f"Стоимость вашего заказа: {int(total)} ₽.\n"
+                        f"Точную сумму вам выдаст — ЮKassa.\n\n"
+                        f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
+                    )
+                else:
+                    # service не распознан
+                    await event.message.answer(reply)
+            else:
+                # Не JSON — просто текст
+                await event.message.answer(reply)
+        except json.JSONDecodeError:
+            # Невалидный JSON — выводим как текст
+            await event.message.answer(reply)
+
     except Exception as e:
         logging.error(f"Ошибка OpenRouter: {e}")
         await event.message.answer(
