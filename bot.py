@@ -412,21 +412,27 @@ async def handle_message(event: MessageCreated):
             payment_url = create_payment(total, description, return_url)
 
             if payment_url:
-                phone = user_phone.get(user_id, "неизвестно")
-                services_text = order_services.get(user_id, "Без описания")
-                log_order_to_sheet(user_name, user_id, phone, services_text, total)
-                send_order_email(user_name, user_id, phone, services_text, total, payment_url)
+    phone = user_phone.get(user_id, "неизвестно")
+    services_text = order_services.get(user_id, "Без описания")
+    log_order_to_sheet(user_name, user_id, phone, services_text, total)
+    send_order_email(user_name, user_id, phone, services_text, total, payment_url)
 
-                await event.message.answer(
-                    f"Спасибо! Оплатите заказ по ссылке:\n{payment_url}\n\n"
-                    "После оплаты мы начнём работу над вашим заказом."
-                )
-            else:
-                await event.message.answer(
-                    "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
-                )
-            waiting_for_offer[user_id] = False
-            return
+    # Сообщение клиенту — ВНУТРИ if
+    await event.message.answer(
+        f"✅ Ваш заказ принят!\n\n"
+        f"👤 Имя: {user_name}\n"
+        f"📋 Состав заказа: {services_text}\n"
+        f"💰 Сумма: {int(total)} ₽\n\n"
+        f"🔗 Оплатите по ссылке:\n{payment_url}\n\n"
+        "После оплаты мы начнём работу над вашим заказом."
+    )
+else:
+    # Сообщение об ошибке — ВНУТРИ else
+    await event.message.answer(
+        "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
+    )
+    waiting_for_offer[user_id] = False
+    return
         else:
             await event.message.answer(
                 "Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да» или «согласен»."
