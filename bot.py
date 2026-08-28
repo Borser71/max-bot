@@ -491,84 +491,88 @@ async def handle_message(event: MessageCreated):
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
 
-        # --- Попытка распарсить JSON ---
-        try:
-            data = json.loads(reply)
-            if isinstance(data, dict) and "service" in data:
-                service = data.get("service")
-                site_type = data.get("site_type")
-                addons = data.get("addons", [])
-                package = data.get("package")
+        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА (улучшенный парсинг) ---
+        json_match = re.search(r'\{.*\}', reply, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group())
+                if isinstance(data, dict) and "service" in data:
+                    service = data.get("service")
+                    site_type = data.get("site_type")
+                    addons = data.get("addons", [])
+                    package = data.get("package")
 
-                if service == "site":
-                    total = 0.0
-                    services_text = ""
-                    site_names = {
-                        "len": "Лендинг",
-                        "info": "Информационный сайт",
-                        "vizit": "Визитка",
-                        "portfolio": "Портфолио",
-                        "shop": "Интернет-магазин",
-                        "universal": "Универсальный сайт"
-                    }
-                    site_prices = {
-                        "len": 8000, "info": 12000, "vizit": 16000,
-                        "portfolio": 20000, "shop": 24000, "universal": 40000
-                    }
-                    total += site_prices.get(site_type, 0)
-                    services_text = site_names.get(site_type, "Сайт")
-                    site_addons = {
-                        1:0, 2:1600, 3:1600, 4:2400, 5:2400, 6:2400,
-                        7:2400, 8:2400, 9:2400, 10:4000, 11:4000, 12:4000, 13:4000,
-                        14:5000
-                    }
-                    addon_names = {
-                        1: "favicon", 2: "Форма обратной связи", 3: "Карта проезда",
-                        4: "Еще 6 товаров (для интернет-магазина)", 5: "Оферта", 6: "Политика конфиденциальности",
-                        7: "Блок отзывов", 8: "Яндекс-Метрика", 9: "Виджет звонка",
-                        10: "Еще 2 товара (для лендинга)", 11: "Автоплатеж", 12: "Google Таблица", 13: "Календарь",
-                        14: "Автоматическая оплата криптовалютой"
-                    }
-                    if addons:
-                        addon_list = [addon_names.get(a, str(a)) for a in addons]
-                        services_text += " + " + ", ".join(addon_list)
-                    for a in addons:
-                        total += site_addons.get(a, 0)
+                    if service == "site":
+                        total = 0.0
+                        services_text = ""
+                        site_names = {
+                            "len": "Лендинг",
+                            "info": "Информационный сайт",
+                            "vizit": "Визитка",
+                            "portfolio": "Портфолио",
+                            "shop": "Интернет-магазин",
+                            "universal": "Универсальный сайт"
+                        }
+                        site_prices = {
+                            "len": 8000, "info": 12000, "vizit": 16000,
+                            "portfolio": 20000, "shop": 24000, "universal": 40000
+                        }
+                        total += site_prices.get(site_type, 0)
+                        services_text = site_names.get(site_type, "Сайт")
+                        site_addons = {
+                            1:0, 2:1600, 3:1600, 4:2400, 5:2400, 6:2400,
+                            7:2400, 8:2400, 9:2400, 10:4000, 11:4000, 12:4000, 13:4000,
+                            14:5000
+                        }
+                        addon_names = {
+                            1: "favicon", 2: "Форма обратной связи", 3: "Карта проезда",
+                            4: "Еще 6 товаров (для интернет-магазина)", 5: "Оферта", 6: "Политика конфиденциальности",
+                            7: "Блок отзывов", 8: "Яндекс-Метрика", 9: "Виджет звонка",
+                            10: "Еще 2 товара (для лендинга)", 11: "Автоплатеж", 12: "Google Таблица", 13: "Календарь",
+                            14: "Автоматическая оплата криптовалютой"
+                        }
+                        if addons:
+                            addon_list = [addon_names.get(a, str(a)) for a in addons]
+                            services_text += " + " + ", ".join(addon_list)
+                        for a in addons:
+                            total += site_addons.get(a, 0)
 
-                    calculated_total[user_id] = total
-                    order_services[user_id] = services_text
-                    waiting_for_confirmation[user_id] = True
-                    await event.message.answer(
-                        f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
-                        f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
-                    )
+                        calculated_total[user_id] = total
+                        order_services[user_id] = services_text
+                        waiting_for_confirmation[user_id] = True
+                        await event.message.answer(
+                            f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
+                            f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
+                        )
 
-                elif service == "bot" and package:
-                    package_prices = {
-                        "contact": 8000,
-                        "contact_consult": 12000,
-                        "full": 20000
-                    }
-                    package_names = {
-                        "contact": "Бот для сбора контактов (без ИИ)",
-                        "contact_consult": "Сбор контактов и бот-консультант (с ИИ)",
-                        "full": "Бот: сбор контактов, консультант, оплата (с ИИ)"
-                    }
-                    total = package_prices.get(package, 0)
-                    services_text = package_names.get(package, "Telegram-бот")
+                    elif service == "bot" and package:
+                        package_prices = {
+                            "contact": 8000,
+                            "contact_consult": 12000,
+                            "full": 20000
+                        }
+                        package_names = {
+                            "contact": "Бот для сбора контактов (без ИИ)",
+                            "contact_consult": "Сбор контактов и бот-консультант (с ИИ)",
+                            "full": "Бот: сбор контактов, консультант, оплата (с ИИ)"
+                        }
+                        total = package_prices.get(package, 0)
+                        services_text = package_names.get(package, "Telegram-бот")
 
-                    calculated_total[user_id] = total
-                    order_services[user_id] = services_text
-                    waiting_for_confirmation[user_id] = True
-                    await event.message.answer(
-                        f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
-                        f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
-                    )
+                        calculated_total[user_id] = total
+                        order_services[user_id] = services_text
+                        waiting_for_confirmation[user_id] = True
+                        await event.message.answer(
+                            f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
+                            f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
+                        )
+                    else:
+                        await event.message.answer(reply)
                 else:
                     await event.message.answer(reply)
-            else:
+            except json.JSONDecodeError:
                 await event.message.answer(reply)
-        except json.JSONDecodeError:
+        else:
             await event.message.answer(reply)
 
     except Exception as e:
