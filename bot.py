@@ -120,7 +120,7 @@ def send_order_email(user_name, user_id, phone, services, total, payment_url):
     except Exception as e:
         logging.error(f"Ошибка отправки письма с заказом: {e}")
 
-# --- СИСТЕМНЫЙ ПРОМПТ (исправлен) ---
+# --- СИСТЕМНЫЙ ПРОМПТ ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги (только для сайтов), ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -436,14 +436,17 @@ async def handle_message(event: MessageCreated):
                     "Оставшиеся 50% вы оплатите после завершения работы.\n"
                     "После оплаты мы начнём работу над вашим заказом."
                 )
-                # ===== СБРОС СОСТОЯНИЙ (НО НЕ ИСТОРИИ) =====
+
+                # ===== ЗАМЕНА ИСТОРИИ =====
+                history[user_id] = [
+                    {"role": "system", "content": "Пользователь уже оформил заказ. Теперь ты просто консультант. Отвечай на вопросы по существу, не возвращайся к оформлению заказа."}
+                ]
+
+                # Сброс состояний
                 waiting_for_offer[user_id] = False
                 waiting_for_confirmation[user_id] = False
                 calculated_total[user_id] = 0.0
                 order_services[user_id] = ""
-                # Ограничиваем историю до 10 сообщений, чтобы нейросеть помнила контекст
-                if len(history.get(user_id, [])) > 10:
-                    history[user_id] = history[user_id][-10:]
                 return
             else:
                 await event.message.answer(
@@ -498,7 +501,7 @@ async def handle_message(event: MessageCreated):
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
 
-        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА (улучшенный парсинг) ---
+        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА ---
         json_match = re.search(r'\{.*\}', reply, re.DOTALL)
         if json_match:
             try:
