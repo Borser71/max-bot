@@ -120,7 +120,7 @@ def send_order_email(user_name, user_id, phone, services, total, payment_url):
     except Exception as e:
         logging.error(f"Ошибка отправки письма с заказом: {e}")
 
-# --- СИСТЕМНЫЙ ПРОМПТ ---
+# --- СИСТЕМНЫЙ ПРОМПТ (исправлен) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги (только для сайтов), ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -278,6 +278,7 @@ SYSTEM_PROMPT = """
 - Если клиент говорит «понял», «ок», «да», «хорошо», «продолжим» и подобное — продолжай сценарий с текущего шага, не задавай вопрос «сайт или бот?» повторно, если выбор уже сделан.
 - Если клиент спрашивает «ты кто?», «кто ты?», «представься», «расскажи о себе» — НЕМЕДЛЕННО ответь: «Я — консультант компании Borisov Store. Моя задача — помочь вам выбрать сайт или Telegram-бота, уточнить дополнительные услуги, ознакомить с офертой и направить к оформлению заказа. Что бы вы хотели заказать — сайт или Telegram-бота?» — и продолжай сценарий.
 - Если клиент говорит «бесплатно», «дешевле», «скидку», «можно ли дешевле», «бюджет» или подобное — вежливо объясни, что все цены фиксированы и указаны на сайте. Предложи выбрать тариф, который подходит под бюджет, или свяжитесь с нами для обсуждения индивидуальных условий. Продолжи дальше следовать сценарию. 
+- Если клиент ответил «да» или «хочу» на вопрос о дополнительных услугах, ты ОБЯЗАН вывести список из 14 пунктов (как в разделе 3) и больше ничего. После этого жди, пока клиент выберет номера. Не добавляй никакой другой информации, не задавай других вопросов до тех пор, пока клиент не выберет услуги.
 
 Если клиент явно выбрал услугу (назвал тип сайта с номерами доп. услуг или выбрал пакет бота), ты должен вернуть ТОЛЬКО JSON в формате:
 
@@ -344,9 +345,7 @@ async def handle_message(event: MessageCreated):
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
         elif waiting_for_confirmation.get(user_id):
             waiting_for_confirmation[user_id] = False
-            # Ограничиваем историю, не очищаем полностью
-            if len(history.get(user_id, [])) > 10:
-                history[user_id] = history[user_id][-10:]
+            history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
             await event.message.answer("Вы отменили заказ. Напишите что-нибудь, чтобы начать заново.")
@@ -356,9 +355,7 @@ async def handle_message(event: MessageCreated):
         elif phone_collected.get(user_id):
             phone_collected[user_id] = False
             user_phone[user_id] = ""
-            # Ограничиваем историю, не очищаем полностью
-            if len(history.get(user_id, [])) > 10:
-                history[user_id] = history[user_id][-10:]
+            history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
             await event.message.answer("Диалог сброшен. Напишите что-нибудь, чтобы начать заново.")
@@ -436,15 +433,10 @@ async def handle_message(event: MessageCreated):
                     "Оставшиеся 50% вы оплатите после завершения работы.\n"
                     "После оплаты мы начнём работу над вашим заказом."
                 )
-
-                # ===== ЗАМЕНА ИСТОРИИ =====
-                history[user_id] = [
-                    {"role": "system", "content": "Пользователь уже оформил заказ. Теперь ты просто консультант. Отвечай на вопросы по существу, не возвращайся к оформлению заказа."}
-                ]
-
-                # Сброс состояний
+                # ===== СБРОС СОСТОЯНИЙ =====
                 waiting_for_offer[user_id] = False
                 waiting_for_confirmation[user_id] = False
+                history[user_id] = []
                 calculated_total[user_id] = 0.0
                 order_services[user_id] = ""
                 return
@@ -475,8 +467,7 @@ async def handle_message(event: MessageCreated):
             return
         elif text.lower() in ["нет", "не согласен", "не"]:
             waiting_for_confirmation[user_id] = False
-            if len(history.get(user_id, [])) > 10:
-                history[user_id] = history[user_id][-10:]
+            history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
             await event.message.answer(
@@ -501,7 +492,7 @@ async def handle_message(event: MessageCreated):
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
 
-        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА ---
+        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА (улучшенный парсинг) ---
         json_match = re.search(r'\{.*\}', reply, re.DOTALL)
         if json_match:
             try:
