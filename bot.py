@@ -344,7 +344,6 @@ async def handle_message(event: MessageCreated):
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
         elif waiting_for_confirmation.get(user_id):
             waiting_for_confirmation[user_id] = False
-            # Сброс выбора, чтобы клиент мог начать заново
             history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
@@ -433,6 +432,13 @@ async def handle_message(event: MessageCreated):
                     "Оставшиеся 50% вы оплатите после завершения работы.\n"
                     "После оплаты мы начнём работу над вашим заказом."
                 )
+                # ===== СБРОС СОСТОЯНИЙ =====
+                waiting_for_offer[user_id] = False
+                waiting_for_confirmation[user_id] = False
+                history[user_id] = []
+                calculated_total[user_id] = 0.0
+                order_services[user_id] = ""
+                return
             else:
                 await event.message.answer(
                     "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
@@ -459,9 +465,7 @@ async def handle_message(event: MessageCreated):
             )
             return
         elif text.lower() in ["нет", "не согласен", "не"]:
-            # Клиент не согласен с суммой — сбрасываем состояние и предлагаем уточнить заказ
             waiting_for_confirmation[user_id] = False
-            # Сбрасываем историю, чтобы клиент мог заново выбрать услуги
             history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
@@ -494,7 +498,7 @@ async def handle_message(event: MessageCreated):
                 service = data.get("service")
                 site_type = data.get("site_type")
                 addons = data.get("addons", [])
-                package = data.get("package")  # для ботов
+                package = data.get("package")
 
                 if service == "site":
                     total = 0.0
@@ -533,7 +537,6 @@ async def handle_message(event: MessageCreated):
 
                     calculated_total[user_id] = total
                     order_services[user_id] = services_text
-
                     waiting_for_confirmation[user_id] = True
                     await event.message.answer(
                         f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
@@ -541,7 +544,6 @@ async def handle_message(event: MessageCreated):
                     )
 
                 elif service == "bot" and package:
-                    # Три пакета ботов (без доп. услуг)
                     package_prices = {
                         "contact": 8000,
                         "contact_consult": 12000,
@@ -557,7 +559,6 @@ async def handle_message(event: MessageCreated):
 
                     calculated_total[user_id] = total
                     order_services[user_id] = services_text
-
                     waiting_for_confirmation[user_id] = True
                     await event.message.answer(
                         f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
