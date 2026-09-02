@@ -48,9 +48,6 @@ def create_payment(amount: float, description: str, return_url: str) -> str | No
         logging.error("ЮKassa не настроена")
         return None
 
-    # === ИЗМЕНЕНИЕ: добавляем логирование ===
-    logging.info(f"Создание платежа: amount={amount}, description={description[:50]}...")
-
     idempotence_key = str(uuid.uuid4())
     try:
         payment = Payment.create({
@@ -123,7 +120,7 @@ def send_order_email(user_name, user_id, phone, services, total, payment_url):
     except Exception as e:
         logging.error(f"Ошибка отправки письма с заказом: {e}")
 
-# --- СИСТЕМНЫЙ ПРОМПТ (без изменений) ---
+# --- СИСТЕМНЫЙ ПРОМПТ (исправлен) ---
 SYSTEM_PROMPT = """
 Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать сайт или Telegram-бота, уточнить дополнительные услуги (только для сайтов), ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
 
@@ -408,14 +405,9 @@ async def handle_message(event: MessageCreated):
     if waiting_for_offer.get(user_id):
         if text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
             total = calculated_total.get(user_id, 0.0)
-            # === ИЗМЕНЕНИЕ: проверка на ноль ===
             if total <= 0:
                 await event.message.answer("Извините, не удалось определить сумму заказа. Попробуйте ещё раз.")
                 waiting_for_offer[user_id] = False
-                waiting_for_confirmation[user_id] = False
-                calculated_total[user_id] = 0.0
-                order_services[user_id] = ""
-                history[user_id] = []
                 return
 
             description = "Заказ в Borisov Store"
@@ -423,23 +415,7 @@ async def handle_message(event: MessageCreated):
 
             # ===== ПРЕДОПЛАТА 50% =====
             prepayment = int(total * 0.5)
-            # === ИЗМЕНЕНИЕ: проверка prepayment на ноль ===
-            if prepayment <= 0:
-                await event.message.answer("Сумма предоплаты некорректна. Попробуйте выбрать услугу заново.")
-                waiting_for_offer[user_id] = False
-                waiting_for_confirmation[user_id] = False
-                calculated_total[user_id] = 0.0
-                order_services[user_id] = ""
-                history[user_id] = []
-                return
-
-            # === ИЗМЕНЕНИЕ: обрезаем описание для ЮKassa (на всякий случай) ===
-            short_desc = description[:100] + "..." if len(description) > 100 else description
-
-            # === ИЗМЕНЕНИЕ: добавляем логирование ===
-            logging.info(f"Создание платежа: total={total}, prepayment={prepayment}, desc={short_desc}")
-
-            payment_url = create_payment(prepayment, short_desc, return_url)
+            payment_url = create_payment(prepayment, description, return_url)
 
             if payment_url:
                 phone = user_phone.get(user_id, "неизвестно")
@@ -465,15 +441,10 @@ async def handle_message(event: MessageCreated):
                 order_services[user_id] = ""
                 return
             else:
-                # === ИЗМЕНЕНИЕ: полный сброс при ошибке платежа ===
                 await event.message.answer(
                     "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
                 )
                 waiting_for_offer[user_id] = False
-                waiting_for_confirmation[user_id] = False
-                calculated_total[user_id] = 0.0
-                order_services[user_id] = ""
-                history[user_id] = []
                 return
         else:
             await event.message.answer(
