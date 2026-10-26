@@ -484,7 +484,7 @@ async def handle_message(event: MessageCreated):
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[user_id]
         response = client.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model="gemini-2.5-flash-lite",
             messages=messages,
             max_tokens=800,
             temperature=0,
@@ -579,7 +579,7 @@ async def handle_message(event: MessageCreated):
     except Exception as e:
         logging.error(f"Ошибка OpenRouter: {e}")
         await event.message.answer(
-            "Извините, произошла техническая ошибка. Попробуйте ещё раз или свяжитесь с нами через контакты на сайте."
+            "Секунду, уточняю информацию. Пожалуйста, отправьте сообщение ещё раз."
         )
 
 async def main():
