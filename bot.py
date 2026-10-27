@@ -484,7 +484,7 @@ async def handle_message(event: MessageCreated):
     try:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[user_id]
         response = client.chat.completions.create(
-            model="gemini-2.5-flash-lite",
+            model="google/gemini-2.5-flash-lite",
             messages=messages,
             max_tokens=800,
             temperature=0,
