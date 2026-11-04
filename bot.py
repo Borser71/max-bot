@@ -408,9 +408,7 @@ async def handle_message(event: MessageCreated):
             )
             return
         elif text.lower() in ["нет", "не согласен", "не"]:
-            waiting_for_confirmation[user_id] = False
-            history[user_id] = []
-            calculated_total[user_id] = 0.0
+            waiting_for_confirmation[user_id] = False            
             order_services[user_id] = ""
             await event.message.answer(
                 "Хорошо, давайте пересчитаем ваш заказ. Напишите, что вы хотите заказать (тип сайта или бота и номера дополнительных услуг)."
