@@ -346,7 +346,7 @@ async def handle_message(event: MessageCreated):
 
     # ===== СНАЧАЛА ПРОВЕРЯЕМ СОСТОЯНИЯ ОФЕРТЫ И ПОДТВЕРЖДЕНИЯ =====
 
-    # --- Если мы ждём подтверждение оферты ---
+       # --- Если мы ждём подтверждение оферты ---
     if waiting_for_offer.get(user_id):
         if text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
             total = calculated_total.get(user_id, 0.0)
@@ -358,6 +358,7 @@ async def handle_message(event: MessageCreated):
             description = "Заказ в Borisov Store"
             return_url = "https://borisov.store/thank-you"
 
+            # ===== ПРЕДОПЛАТА 50% =====
             prepayment = int(total * 0.5)
             payment_url = create_payment(prepayment, description, return_url)
 
@@ -377,6 +378,7 @@ async def handle_message(event: MessageCreated):
                     "Оставшиеся 50% вы оплатите после завершения работы.\n"
                     "После оплаты мы начнём работу над вашим заказом."
                 )
+                # ===== СБРОС СОСТОЯНИЙ =====
                 waiting_for_offer[user_id] = False
                 waiting_for_confirmation[user_id] = False
                 history[user_id] = []
