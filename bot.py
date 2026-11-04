@@ -232,9 +232,15 @@ SYSTEM_PROMPT = """
 Напишите номер (1-3)."
 
 5. Ветка «AI-агент на сайт»
-"AI-агент — это умный консультант 24/7. 
+Если клиент выбрал AI-агента — ответь текстом (НЕ JSON):
+"AI-агент — это умный консультант 24/7 на вашем сайте.
 Один пакет. Стоимость 16 000 ₽.
-Скажите - да" (продолжай сценарий)
+Если хотите оформить — напишите «да»."
+
+Дождись ответа клиента.
+- Если клиент написал «да», «согласен», «оформляем», «беру» — верни ТОЛЬКО JSON, без пояснений:
+{"service": "bot", "platform": "ai_agent", "package": "full"}
+- Если клиент задал любой вопрос (что умеет, как работает, сроки, технологии) — ответь текстом по существу и снова предложи: «Если хотите оформить — напишите "да"». JSON в этом случае НЕ возвращай.
 
 6. Технологии (отвечать, если клиент спросит)
 
@@ -329,7 +335,7 @@ SYSTEM_PROMPT = """
 {"service": "site", "site_type": "vizit", "addons": [3, 7, 12]}
 
 Для Telegram-бота:
-{"service": "bot", "package": "full"}
+{"service": "bot", "platform": "telegram", "package": "full"}
 
 Для MAX-бота:
 {"service": "bot", "platform": "max", "package": "contact/contact_consult/full"}
@@ -596,26 +602,43 @@ async def handle_message(event: MessageCreated):
                             f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
                         )
 
-                    elif service == "bot" and package:
-                        package_prices = {
-                            "contact": 6400,
-                            "contact_consult": 9600,
-                            "full": 16000
-                        }
-                        package_names = {
-                            "contact": "Бот для сбора контактов (без ИИ)",
-                            "contact_consult": "Сбор контактов и бот-консультант (с ИИ)",
-                            "full": "Бот: сбор контактов, консультант, оплата (с ИИ)"
-                        }
-                        total = package_prices.get(package, 0)
-                        services_text = package_names.get(package, "Telegram-бот")
+                                        elif service == "bot" and package:
+                        platform = data.get("platform")  # None | "telegram" | "max" | "ai_agent"
 
-                        calculated_total[user_id] = total
-                        order_services[user_id] = services_text
-                        waiting_for_confirmation[user_id] = True
-                        await event.message.answer(
-                            f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
-                            f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
+                        if platform == "max":
+                            package_prices = {"contact": 8000, "contact_consult": 16000, "full": 24000}
+                            package_names = {
+                                "contact": "MAX-бот для сбора контактов (без ИИ)",
+                                "contact_consult": "MAX-бот: сбор контактов и консультант (с ИИ)",
+                                "full": "MAX-бот: сбор контактов, консультант, оплата (с ИИ)"
+                            }
+                            fallback_name = "MAX-бот"
+                        elif platform == "ai_agent":
+                            package_prices = {"full": 16000}
+                            package_names = {"full": "AI-агент на сайт (консультант 24/7)"}
+                            fallback_name = "AI-агент на сайт"
+                        else:  # Telegram-бот (platform отсутствует или "telegram")
+                            package_prices = {"contact": 6400, "contact_consult": 9600, "full": 16000}
+                            package_names = {
+                                "contact": "Telegram-бот для сбора контактов (без ИИ)",
+                                "contact_consult": "Telegram-бот: сбор контактов и консультант (с ИИ)",
+                                "full": "Telegram-бот: сбор контактов, консультант, оплата (с ИИ)"
+                            }
+                            fallback_name = "Telegram-бот"
+
+                        total = package_prices.get(package, 0)
+                        if total <= 0:
+                            # неизвестный пакет — отдаём ответ LLM как есть, не ломаем воронку
+                            await event.message.answer(reply)
+                        else:
+                            services_text = package_names.get(package, fallback_name)
+                            calculated_total[user_id] = total
+                            order_services[user_id] = services_text
+                            waiting_for_confirmation[user_id] = True
+                            await event.message.answer(
+                                f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
+                                f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
+                            )
                         )
                     else:
                         await event.message.answer(reply)
