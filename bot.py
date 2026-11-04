@@ -342,7 +342,9 @@ async def handle_message(event: MessageCreated):
                 )
                 waiting_for_offer[user_id] = False
                 waiting_for_confirmation[user_id] = False
-                history[user_id] = []
+                history[user_id] = [
+                    {"role": "system", "content": "Клиент только что оформил заказ и получил ссылку на оплату. Теперь ты просто консультант. Отвечай на любые вопросы клиента (налоги, технологии, гарантии), но НЕ предлагай ему заказывать снова и НЕ спрашивай про сумму."}
+                ] 
                 calculated_total[user_id] = 0.0
                 order_services[user_id] = ""
                 user_platform[user_id] = None
