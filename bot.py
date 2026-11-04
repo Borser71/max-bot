@@ -427,7 +427,12 @@ async def handle_message(event: MessageCreated):
     history[user_id].append({"role": "user", "content": text})
 
     try:
-        messages = history[user_id]
+      # Принудительно напоминаем нейросети, что она консультирует по выбранной платформе
+        system_reminder = {
+            "role": "system", 
+            "content": f"Напоминание: Клиент уже выбрал платформу: {user_platform.get(user_id)}. Отвечай на вопросы строго в рамках этой платформы (технологии, цены, особенности). НЕ предлагай заказать снова."
+        }
+        messages = history[user_id] + [system_reminder]
         response = client.chat.completions.create(
             model="google/gemini-2.5-flash-lite",
             messages=messages,
