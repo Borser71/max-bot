@@ -602,7 +602,7 @@ async def handle_message(event: MessageCreated):
                             f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
                         )
 
-                                        elif service == "bot" and package:
+                    elif service == "bot" and package:
                         platform = data.get("platform")  # None | "telegram" | "max" | "ai_agent"
 
                         if platform == "max":
@@ -639,7 +639,6 @@ async def handle_message(event: MessageCreated):
                                 f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
                                 f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
                             )
-                        )
                     else:
                         await event.message.answer(reply)
                 else:
