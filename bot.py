@@ -217,6 +217,21 @@ AI-агент — это умный консультант 24/7. Стоимос�
 Если клиент согласен (пишет "да"), верни ТОЛЬКО JSON:
 {"service": "bot", "platform": "ai_agent", "package": "full"}
 """
+def send_phone_email(user_name, user_id, phone):
+    subject = f"Новый контакт из MAX: {user_name}"
+    body = f"Имя: {user_name}\nID: {user_id}\nТелефон: {phone}"
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
+        logging.info("Письмо с телефоном отправлено")
+    except Exception as e:
+        logging.error(f"Ошибка отправки email: {e}")
 
 # ==========================================
 # БОТ
