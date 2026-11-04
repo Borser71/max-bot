@@ -399,40 +399,8 @@ async def handle_message(event: MessageCreated):
     if text.startswith("/"):
         return
 
-    # --- Этап 1: сбор номера ---
-    if not phone_collected.get(user_id):
-        if waiting_for_phone.get(user_id):
-            digit_count = count_digits(text)
-            if digit_count < 10:
-                await event.message.answer(
-                    f"Пожалуйста, введите номер полностью (минимум 10 цифр).\n"
-                    f"Сейчас введено {digit_count} цифр."
-                )
-                return
-
-            phone = text
-            user_phone[user_id] = phone
-            send_phone_email(user_name, user_id, phone)
-            log_phone_to_sheet(user_name, user_id, phone)
-            phone_collected[user_id] = True
-            waiting_for_phone[user_id] = False
-
-            history[user_id] = [
-                {"role": "system", "content": f"Номер клиента уже получен: {phone}. Не спрашивай его повторно."}
-            ]
-
-            await event.message.answer(
-                f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Что бы вы хотели заказать — сайт или бота?"
-            )
-            return
-
-        waiting_for_phone[user_id] = True
-        await event.message.answer(
-            f"Здравствуйте, {user_name}! 👋\n"
-            "Пожалуйста, напишите ваш номер телефона в ответном сообщении.\n"
-            "(Минимум 10 цифр)"
-        )
-        return
+    # ===== СНАЧАЛА ПРОВЕРЯЕМ СОСТОЯНИЯ ОФЕРТЫ И ПОДТВЕРЖДЕНИЯ =====
+    # Это предотвращает отправку этих сообщений в нейросеть и двойные вопросы
 
     # --- Если мы ждём подтверждение оферты ---
     if waiting_for_offer.get(user_id):
@@ -510,6 +478,43 @@ async def handle_message(event: MessageCreated):
         else:
             await event.message.answer("Пожалуйста, ответьте «да» или «нет».")
             return
+
+    # ===== ЕСЛИ НЕ ПОПАЛИ В СОСТОЯНИЯ, ТОГДА СБОР НОМЕРА И НЕЙРОСЕТЬ =====
+
+    # --- Этап 1: сбор номера ---
+    if not phone_collected.get(user_id):
+        if waiting_for_phone.get(user_id):
+            digit_count = count_digits(text)
+            if digit_count < 10:
+                await event.message.answer(
+                    f"Пожалуйста, введите номер полностью (минимум 10 цифр).\n"
+                    f"Сейчас введено {digit_count} цифр."
+                )
+                return
+
+            phone = text
+            user_phone[user_id] = phone
+            send_phone_email(user_name, user_id, phone)
+            log_phone_to_sheet(user_name, user_id, phone)
+            phone_collected[user_id] = True
+            waiting_for_phone[user_id] = False
+
+            history[user_id] = [
+                {"role": "system", "content": f"Номер клиента уже получен: {phone}. Не спрашивай его повторно."}
+            ]
+
+            await event.message.answer(
+                f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Что бы вы хотели заказать — сайт или бота?"
+            )
+            return
+
+        waiting_for_phone[user_id] = True
+        await event.message.answer(
+            f"Здравствуйте, {user_name}! 👋\n"
+            "Пожалуйста, напишите ваш номер телефона в ответном сообщении.\n"
+            "(Минимум 10 цифр)"
+        )
+        return
 
     # --- Этап 2: режим консультации с нейросетью ---
     history[user_id].append({"role": "user", "content": text})
