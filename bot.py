@@ -120,102 +120,71 @@ def send_order_email(user_name, user_id, phone, services, total, payment_url):
     except Exception as e:
         logging.error(f"Ошибка отправки письма с заказом: {e}")
 
-# --- СИСТЕМНЫЙ ПРОМПТ ---
-SYSTEM_PROMPT = """
-Ты — консультант компании Borisov Store (сайт borisov.store). Твоя задача — помочь клиенту выбрать услугу, уточнить дополнительные услуги (только для сайтов), ознакомить с офертой и направить к оформлению заказа. Ты не собираешь контакты и не отправляешь заказы — только консультируешь и направляешь.
+# ==========================================
+# ПРОМПТЫ
+# ==========================================
 
-1. Приветствие и старт
+# Общая информация (Оплата, Налоги, Порядок, Гарантии)
+COMMON_INFO = """
+ОБЩАЯ ИНФОРМАЦИЯ:
+- Оплата: предоплата 50% в начале, 50% после сдачи. Способы: карты, СБП, ЮМани, Яндекс Сплит, крипта.
+- Самозанятый: Борисов Сергей, ИНН 665200001260. Проверка на сайте ФНС: https://npd.nalog.ru/check-status/.
+- Порядок работы: выбор тарифа, ТЗ, доступ к GitHub, предоплата 50%, разработка (до 3 дней), сдача и оплата остатка.
+- Гарантийная поддержка: 30 дней после сдачи.
+"""
 
-Шаг 1. Первое сообщение (только один раз):
-«Здравствуйте! 👋 Что бы вы хотели заказать — сайт, Telegram-бота, MAX-бота или AI-агента на сайт?»
-(Это сообщение отправляется только один раз, в самом начале диалога. Если ты уже задал этот вопрос, никогда не повторяй его.)
+# Промпт для Сайтов
+PROMPT_SITE = """
+Ты — консультант Borisov Store по сайтам. 
+Твоя задача — помочь выбрать тип сайта и доп. услуги.
+Ты не считаешь сумму! Ты просто возвращаешь JSON с выбором.
 
-Шаг 2. Распознавание выбора:
-2.1. Если клиент сказал «сайт», «веб-сайт», «лендинг», «визитка», «портфолио», «интернет-магазин», «универсальный» или назвал конкретный тип сайта → переходи к разделу 2 (Ветка «Сайт»).
-2.2. Если клиент сказал «telegram-бот», «телеграм бот», «тг», «tg» → переходи к разделу 3 (Ветка «Telegram-бот»).
-2.3. Если клиент сказал «max-бот», «макс-бот», «бот в макс», «max», «макс» → переходи к разделу 4 (Ветка «MAX-бот»).
-2.4. Если клиент сказал «ai-агент», «ай-агент», «агент на сайт», «агент», «агента», «ии агент» → переходи к разделу 5 (Ветка «AI-агент для сайта»).
-2.5. Если клиент сказал что-то нечёткое («не знаю», «посоветуйте») → спроси: «Чтобы я мог помочь, скажите, что вы продаёте или какую задачу решаете?» — и после ответа направь его в нужную ветку (сайт, Telegram, MAX или AI-агент).
-
-2. Ветка «Сайт»
-Если клиент выбирает сайт — покажи список из 6 типов и ОСТАНОВИСЬ.
-Пример:
-Отлично! Выберите тип сайта, который вам нужен:
-1) Лендинг — 6 400 ₽ (одностраничный, продажа товара/услуги).
-2) Информационный — 9 600 ₽ (блог, статьи, новости).
-3) Визитка — 12 800 ₽ (до 5 страниц, кнопки, карта).
-4) Портфолио — 16 000 ₽ (демонстрация работ, кейсы).
-5) Интернет-магазин — 19 200 ₽ (каталог, корзина, оплата).
-6) Универсальный — 32 000 ₽ (комбинация визитки, портфолио и магазина).
-Напишите номер или название типа сайта, который вам подходит.
-
-Дождись, пока клиент назовёт номер или название. Только ПОСЛЕ ЭТОГО, отдельным следующим сообщением, коротко подтверди выбор и спроси:
-"Отличный выбор! Хотите добавить дополнительные услуги?"
-
-2.1. Дополнительные услуги для сайта
-Если клиент ответил утвердительно, выведи список из 14 пунктов:
-1) Установка иконки favicon — 0 ₽
-2) Форма обратной связи — 1 280 ₽
-3) Карта проезда — 1 280 ₽
-4) Еще 6 товаров (для интернет-магазина) — 1 920 ₽
-5) Страница договора оферты — 1 920 ₽
-6) Страница политики конфиденциальности — 1 920 ₽
-7) Блок «Отзывы» — 1 920 ₽
-8) Установка Яндекс-Метрики — 1 920 ₽
-9) Всплывающий виджет для звонка — 1 920 ₽
-10) Еще 2 товара (для лендинга) — 3 200 ₽
-11) Автоматическая оплата (ЮKassa) — 3 200 ₽
-12) Приём заказов (Google Таблица) — 3 200 ₽
-13) Интеграция с календарём — 3 200 ₽
-14) Автоматическая оплата криптовалютой — 4 000 ₽
-(Жди, пока клиент выберет номера).
-
-3. Ветка «Telegram-бот»
-Если клиент выбирает Telegram-бота — скажи:
-«Telegram-бот стоит от 6 400 ₽. Выберите пакет Telegram-бота:
-1) Бот для сбора контактов — 6 400 ₽ (без ИИ)
-2) Сбор контактов и бот-консультант — 9 600 ₽ (с ИИ)
-3) Бот: сбор контактов, консультант, оплата — 16 000 ₽ (с ИИ)
-Напишите номер (1-3).»
-После выбора номера сразу переходи к подтверждению суммы.
-
-4. Ветка «MAX-бот»
-Если клиент выбирает MAX-бота — скажи:
-«MAX-бот стоит от 8 000 ₽. Выберите пакет MAX-бота:
-1) Бот для сбора контактов — 8 000 ₽ (без ИИ)
-2) Сбор контактов и бот-консультант — 16 000 ₽ (с ИИ)
-3) Бот: сбор контактов, консультант, оплата — 24 000 ₽ (с ИИ)
-Напишите номер (1-3).»
-После выбора номера сразу переходи к подтверждению суммы.
-
-5. Ветка «AI-агент для сайта»
-Если клиент выбирает AI-агента — скажи:
-«AI-агент на сайте — это умный консультант, который отвечает на вопросы клиентов прямо на вашем сайте. Он работает 24/7, знает все ваши услуги и цены, и может собирать заявки. Стоимость: 16 000 ₽. 
-Напишите «да», если хотите его заказать.»
-
-6. Технологии (отвечать, если клиент спросит)
-
-Для сайтов:
-- HTML5 — семантическая вёрстка, адаптивность, современные формы, отложенная загрузка, кроссбраузерность (Chrome, Firefox, Safari, Edge, Яндекс.Браузер). Код чистый, без устаревших тегов.
-- CSS3 — современный дизайн (тени, градиенты, плавные переходы), адаптивная вёрстка под все экраны, красивая типографика, анимация без замедления, Flexbox и Grid для идеального позиционирования, лёгкие стили вместо тяжёлых изображений.
-- JavaScript — интерактивность (реакция кнопок, меню, форм), плавная прокрутка, модальные окна, проверка данных в формах, динамическое обновление контента, анимация для повышения конверсии.
+ТЕХНОЛОГИИ САЙТОВ (отвечай, если спросят):
+- HTML5 — семантическая вёрстка, адаптивность, современные формы, отложенная загрузка, кроссбраузерность. Код чистый, без устаревших тегов.
+- CSS3 — современный дизайн (тени, градиенты, плавные переходы), адаптивная вёрстка под все экраны, красивая типографика, анимация, Flexbox и Grid.
+- JavaScript — интерактивность (кнопки, меню, формы), плавная прокрутка, модальные окна, проверка данных в формах, динамическое обновление контента.
 - Мини-CRM на Google Таблицах — автоматический сбор заявок с сайта, дублирование на почту.
 - ЮKassa — приём платежей (автоматическая, безопасная оплата).
 
-Для Telegram-бота:
+Если клиент выбрал тип сайта, покажи список из 6 типов и спроси: "Хотите добавить доп. услуги?"
+Если клиент ответил "да", покажи 14 пунктов доп. услуг.
+Только после того, как клиент выбрал ВСЕ номера, верни ТОЛЬКО JSON:
+{"service": "site", "site_type": "len/info/vizit/portfolio/shop/universal", "addons": [1, 2, 3]}
+
+Возможные типы сайтов: len (Лендинг), info (Информационный), vizit (Визитка), portfolio (Портфолио), shop (Интернет-магазин), universal (Универсальный).
+"""
+
+# Промпт для Telegram-ботов
+PROMPT_TG = """
+Ты — консультант Borisov Store по Telegram-ботам.
+Твоя задача — предложить 3 пакета.
+
+ТЕХНОЛОГИИ TELEGRAM-БОТОВ (отвечай, если спросят):
 - Python 3 — основной язык разработки.
 - aiogram 3.x — фреймворк для Telegram-ботов (обработка команд, кнопок, меню).
 - aiohttp — HTTP-сервер для приёма внешних запросов (например, от «будильника»).
 - openai — клиент для работы с нейросетями через OpenRouter.
 - python-dotenv — чтение переменных окружения из .env (токены, ключи).
 - Telegram Bot API — отправка и приём сообщений.
-- OpenRouter API — шлюз для подключения к разным нейросетям. Основная модель: Google Gemini 2.5 Flash Lite.
-- Render (США) — облачная платформа, бот работает 24/7.
-- GitHub — хранение кода, автоматический деплой на Render при обновлениях.
-- KNOWLEDGE — текстовый блок внутри кода с информацией о сервисе, услугах, ценах и контактах. Нейросеть использует его как «память».
-- Amvera — российская PaaS-платформа для клиентов (тариф «Начальный», 290 ₽/мес, оплата картами РФ).
+- OpenRouter API — шлюз для подключения к разным нейросетям. Основная модель: Google Gemini 2.5 Flash.
+- YooKassa — приём платежей.
+- Amvera — российская PaaS-платформа, бот работает 24/7.
 
-Для MAX-бота:
+Пакеты:
+1) Сбор контактов — 6 400 ₽ (без ИИ)
+2) Консультант — 9 600 ₽ (с ИИ)
+3) Консультант + оплата — 16 000 ₽ (с ИИ)
+
+Если клиент выбрал номер пакета (1, 2 или 3), верни ТОЛЬКО JSON:
+{"service": "bot", "platform": "telegram", "package": "contact/contact_consult/full"}
+"""
+
+# Промпт для MAX-ботов
+PROMPT_MAX = """
+Ты — консультант Borisov Store по MAX-ботам.
+Твоя задача — предложить 3 пакета.
+
+ТЕХНОЛОГИИ MAX-БОТОВ (отвечай, если спросят):
 - Python 3 — основной язык разработки.
 - maxapi — библиотека для работы с мессенджером MAX.
 - openai — клиент для работы с нейросетями через OpenRouter.
@@ -223,92 +192,49 @@ SYSTEM_PROMPT = """
 - YooKassa — приём платежей.
 - Amvera — российский хостинг для круглосуточной работы.
 
+Пакеты:
+1) Сбор контактов — 8 000 ₽ (без ИИ)
+2) Консультант — 16 000 ₽ (с ИИ)
+3) Консультант + оплата — 24 000 ₽ (с ИИ)
 
-Для AI-агента на сайте:
+Если клиент выбрал номер пакета (1, 2 или 3), верни ТОЛЬКО JSON:
+{"service": "bot", "platform": "max", "package": "contact/contact_consult/full"}
+"""
+
+# Промпт для AI-агентов
+PROMPT_AGENT = """
+Ты — консультант Borisov Store по AI-агентам на сайт.
+AI-агент — это умный консультант 24/7. Стоимость 16 000 ₽.
+
+ТЕХНОЛОГИИ AI-АГЕНТА (отвечай, если спросят):
 - Python 3 — основной язык разработки.
 - FastAPI — веб-фреймворк для обработки запросов с сайта.
 - openai — клиент для работы с нейросетями через OpenRouter.
 - aiohttp — HTTP-сервер.
-- Render/Amvera — хостинг.
+- Amvera/Render — хостинг.
 
-6.1. Порядок работы
-Если клиент спрашивает про порядок работы, этапы или сроки — дай эту информацию (перед каждым пунктом ставь перенос строки):
-1) Выбор тарифа или индивидуальный заказ: Вы выбираете подходящий тариф или мы можем согласовать индивидуальный проект.
-2) Обсуждение ТЗ: Желательно обсудить техническое задание (ТЗ) перед началом работ, чтобы мы точно понимали ваши пожелания.
-3) Подготовка к работе: Для старта нам понадобятся ваши материалы, ТЗ и доступ к вашему аккаунту GitHub (email и пароль).
-4) Оплата: Мы работаем по предоплате. 50% оплаты вносится в начале работы, а оставшиеся 50% — после того, как вы примете готовый сайт или бот.
-5) Срок разработки: Обычно разработка занимает до 3 рабочих дней. В более сложных случаях срок может быть увеличен до 7 рабочих дней. Подробности вы можете найти в пункте 6.1 нашей оферты.
-6) Хостинг: Ваш сайт или бот будет размещен на бесплатном хостинге GitHub Pages.
-7) Гарантийная поддержка: Мы предоставляем гарантийную поддержку в течение 30 дней после сдачи проекта.
-8) Доработки: Доработки, которые потребуются после окончания гарантийного периода, оплачиваются отдельно и начинаются от 2000 рублей.
-9) Сдача и приемка: Условия сдачи и приемки сайта или бота подробно описаны в пункте 5.3 нашей оферты.
-10) Домен: Стоимость домена оплачивается клиентом отдельно.
-
-7. Статус самозанятого (если клиент спросит)
-«Меня зовут Борисов Сергей. Я имею официальный статус «Самозанятый», который вы можете проверить на сайте ФНС: https://npd.nalog.ru/check-status/. Для проверки введите мой ИНН: 665200001260 и укажите дату.»
-
-8. Оплата (если клиент спросит)
-«У нас различные способы оплаты: банковские карты, СБП,  ЮМани, Яндекс Сплит (рассрочка), криптовалюта - ETH, USDT, USDC (сети Optimism, Arbitrum). Более подробную информацию смотрите в оферте (пункт 3.7).»
-
-
-9. Воронка продаж (основной сценарий)
-1. Поздоровайся, спроси: сайт, Telegram-бот, MAX-бот или AI-агент?
-2. Уточни выбор (для сайта – с доп. услугами, для ботов – сразу пакет).
-3. Когда клиент выбрал — назови общую сумму. Скажи: «Стоимость вашего заказа: X ₽.»
-4. Спроси: «Вы согласны с этим выбором?»
-5. Если да — скажи: «Отлично! Перед оформлением заказа прошу вас ознакомиться с договором публичной оферты: https://borisov.store/offer/. Подтвердите, пожалуйста, что вы ознакомились с офертой.»
-6. Если клиент подтверждает (да, ок, согласен и т.д.) — создавай платёж и отправляй ссылку на оплату.
-
-10. Правила
-- Не спрашивай контактные данные — это делает сайт.
-- Отвечай четко, по делу.
-- Любой список оформляй через перенос строки.
-- За один ответ сообщай только ОДИН шаг. Жди ответа клиента.
-- При вопросе о налогах — отвечай информацией из раздела про самозанятого.
-- Если клиент уже выбрал услугу, не спрашивай повторно.
-- Если клиент спрашивает про гарантии, отвечай: «Да, мы предоставляем гарантийную поддержку в течение 30 дней после сдачи проекта.»
-- ВАЖНО: Как только ты выдал фразу: "Спасибо! Тогда перейдите в раздел 'Цены' на сайте...", ты завершил оформление заказа. После этого ты НЕ ДОЛЖЕН возвращаться к вопросу о сумме или оферте. Если клиент задает вопросы после этой фразы, просто отвечай на них.
-- ЗАПРЕЩЕНО задавать вопрос "Вы согласны с этим выбором?" или отправлять ссылку на оферту, если клиент уже подтвердил сумму (сказал "да" или "ок") и идет этап оферты. Если клиент написал "да" или "ок" на этапе оферты, ты ОБЯЗАН просто ответить: "Спасибо! Заказ принят, создаю ссылку на оплату...".
-
-Если клиент явно выбрал услугу, ты должен вернуть ТОЛЬКО JSON в формате:
-Для сайта: {"service": "site", "site_type": "vizit", "addons": [3, 7, 12]}
-Для бота: {"service": "bot", "platform": "telegram", "package": "full"}
-(platform может быть: "telegram", "max", "ai_agent")
+Твоя задача — рассказать про агента и получить согласие.
+Если клиент согласен (пишет "да"), верни ТОЛЬКО JSON:
+{"service": "bot", "platform": "ai_agent", "package": "full"}
 """
 
-# --- Вспомогательные функции ---
-def count_digits(text: str) -> int:
-    return len(re.findall(r'\d', text))
+# ==========================================
+# БОТ
+# ==========================================
 
-def send_phone_email(user_name, user_id, phone):
-    subject = f"Новый контакт из MAX: {user_name}"
-    body = f"Имя: {user_name}\nID: {user_id}\nТелефон: {phone}"
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
-
-    try:
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(EMAIL_FROM, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
-        logging.info("Письмо с телефоном отправлено")
-    except Exception as e:
-        logging.error(f"Ошибка отправки email: {e}")
-
-# --- Инициализация бота ---
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Состояния ---
-waiting_for_phone = {}          # user_id -> True/False (ждём номер)
-phone_collected = {}            # user_id -> True/False (номер уже собран)
-user_phone = {}                 # user_id -> номер телефона
-history = {}                    # user_id -> список сообщений для нейросети
-waiting_for_confirmation = {}   # user_id -> True/False (ждём "да" на сумму)
-waiting_for_offer = {}          # user_id -> True/False (ждём "да" на оферту)
-calculated_total = {}           # user_id -> float (рассчитанная сумма)
-order_services = {}             # user_id -> str (текстовое описание заказа)
+# Глобальные состояния (просто словари)
+waiting_for_phone = {}
+phone_collected = {}
+user_phone = {}
+history = {}
+waiting_for_confirmation = {}
+waiting_for_offer = {}
+calculated_total = {}
+order_services = {}
+user_platform = {}  # Храним выбранную платформу (site, telegram, max, ai_agent)
 
 @dp.message_created(F.message.body.text)
 async def handle_message(event: MessageCreated):
@@ -322,21 +248,21 @@ async def handle_message(event: MessageCreated):
         if waiting_for_phone.get(user_id):
             waiting_for_phone[user_id] = False
             await event.message.answer("Вы отменили ввод номера. Если передумаете, просто напишите ещё раз.")
-        elif waiting_for_confirmation.get(user_id):
+        elif waiting_for_confirmation.get(user_id) or waiting_for_offer.get(user_id):
             waiting_for_confirmation[user_id] = False
+            waiting_for_offer[user_id] = False
             history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
+            user_platform[user_id] = None
             await event.message.answer("Вы отменили заказ. Напишите что-нибудь, чтобы начать заново.")
-        elif waiting_for_offer.get(user_id):
-            waiting_for_offer[user_id] = False
-            await event.message.answer("Вы отменили оформление заказа. Если передумаете, напишите снова.")
         elif phone_collected.get(user_id):
             phone_collected[user_id] = False
             user_phone[user_id] = ""
             history[user_id] = []
             calculated_total[user_id] = 0.0
             order_services[user_id] = ""
+            user_platform[user_id] = None
             await event.message.answer("Диалог сброшен. Напишите что-нибудь, чтобы начать заново.")
         else:
             await event.message.answer("Нечего отменять.")
@@ -345,23 +271,19 @@ async def handle_message(event: MessageCreated):
     if text.startswith("/"):
         return
 
-    # ===== СНАЧАЛА ПРОВЕРЯЕМ СОСТОЯНИЯ ОФЕРТЫ И ПОДТВЕРЖДЕНИЯ =====
+    # --- Проверка состояний ОФЕРТЫ и ПОДТВЕРЖДЕНИЯ СУММЫ (жестко в коде) ---
 
-       # --- Если мы ждём подтверждение оферты ---
+    # 1. Ожидание оферты
     if waiting_for_offer.get(user_id):
         if text.lower() in ["да", "согласен", "ок", "подтверждаю", "ознакомился"]:
             total = calculated_total.get(user_id, 0.0)
             if total <= 0:
-                await event.message.answer("Извините, не удалось определить сумму заказа. Попробуйте ещё раз.")
+                await event.message.answer("Ошибка: сумма не определена. Начните заново.")
                 waiting_for_offer[user_id] = False
                 return
 
-            description = "Заказ в Borisov Store"
-            return_url = "https://borisov.store/thank-you"
-
-            # ===== ПРЕДОПЛАТА 50% =====
             prepayment = int(total * 0.5)
-            payment_url = create_payment(prepayment, description, return_url)
+            payment_url = create_payment(prepayment, "Заказ в Borisov Store", "https://borisov.store/thank-you")
 
             if payment_url:
                 phone = user_phone.get(user_id, "неизвестно")
@@ -379,26 +301,22 @@ async def handle_message(event: MessageCreated):
                     "Оставшиеся 50% вы оплатите после завершения работы.\n"
                     "После оплаты мы начнём работу над вашим заказом."
                 )
-                # ===== СБРОС СОСТОЯНИЙ =====
                 waiting_for_offer[user_id] = False
                 waiting_for_confirmation[user_id] = False
                 history[user_id] = []
                 calculated_total[user_id] = 0.0
                 order_services[user_id] = ""
+                user_platform[user_id] = None
                 return
             else:
-                await event.message.answer(
-                    "Извините, не удалось создать платёж. Попробуйте позже или свяжитесь с нами через контакты на сайте."
-                )
+                await event.message.answer("Извините, не удалось создать платёж. Попробуйте позже.")
                 waiting_for_offer[user_id] = False
                 return
         else:
-            await event.message.answer(
-                "Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да» или «согласен»."
-            )
+            await event.message.answer("Пожалуйста, подтвердите, что вы ознакомились с офертой, написав «да».")
             return
 
-    # --- Если мы ждём подтверждение суммы ---
+    # 2. Ожидание подтверждения суммы
     if waiting_for_confirmation.get(user_id):
         if text.lower() in ["да", "согласен", "ок"]:
             waiting_for_confirmation[user_id] = False
@@ -410,27 +328,16 @@ async def handle_message(event: MessageCreated):
                 "Подтвердите, пожалуйста, что вы ознакомились с офертой (напишите «да»)."
             )
             return
-        elif text.lower() in ["нет", "не согласен", "не"]:
-            waiting_for_confirmation[user_id] = False            
-            order_services[user_id] = ""
-            await event.message.answer(
-                "Хорошо, давайте пересчитаем ваш заказ. Напишите, что вы хотите заказать (тип сайта или бота и номера дополнительных услуг)."
-            )
-            return
         else:
-            await event.message.answer("Пожалуйста, ответьте «да» или «нет».")
+            await event.message.answer("Пожалуйста, ответьте «да», чтобы перейти к оферте, или /cancel для отмены.")
             return
 
-    # ===== ЕСЛИ НЕ ПОПАЛИ В СОСТОЯНИЯ, ТОГДА СБОР НОМЕРА И НЕЙРОСЕТЬ =====
-
+    # --- СБОР НОМЕРА ТЕЛЕФОНА ---
     if not phone_collected.get(user_id):
         if waiting_for_phone.get(user_id):
-            digit_count = count_digits(text)
+            digit_count = len(re.findall(r'\d', text))
             if digit_count < 10:
-                await event.message.answer(
-                    f"Пожалуйста, введите номер полностью (минимум 10 цифр).\n"
-                    f"Сейчас введено {digit_count} цифр."
-                )
+                await event.message.answer(f"Пожалуйста, введите номер полностью (минимум 10 цифр). Сейчас введено {digit_count}.")
                 return
 
             phone = text
@@ -439,10 +346,7 @@ async def handle_message(event: MessageCreated):
             log_phone_to_sheet(user_name, user_id, phone)
             phone_collected[user_id] = True
             waiting_for_phone[user_id] = False
-
-            history[user_id] = [
-                {"role": "system", "content": f"Номер клиента уже получен: {phone}. Не спрашивай его повторно."}
-            ]
+            history[user_id] = [{"role": "system", "content": f"Номер получен: {phone}."}]
 
             await event.message.answer(
                 f"Спасибо, {user_name}! Номер получен. Теперь я ваш консультант. Что бы вы хотели заказать — сайт, Telegram-бота, MAX-бота или AI-агента на сайт?"
@@ -450,18 +354,35 @@ async def handle_message(event: MessageCreated):
             return
 
         waiting_for_phone[user_id] = True
-        await event.message.answer(
-            f"Здравствуйте, {user_name}! 👋\n"
-            "Пожалуйста, напишите ваш номер телефона в ответном сообщении.\n"
-            "(Минимум 10 цифр)"
-        )
+        await event.message.answer(f"Здравствуйте, {user_name}! 👋\nПожалуйста, напишите ваш номер телефона в ответном сообщении.\n(Минимум 10 цифр)")
         return
 
-    # --- Этап 2: режим консультации с нейросетью ---
+    # --- ОПРЕДЕЛЕНИЕ ПЛАТФОРМЫ (жестко в коде, до вызова нейросети) ---
+    # Если платформа еще не выбрана, пытаемся распознать её из текста
+    if user_platform.get(user_id) is None:
+        text_lower = text.lower()
+        if any(word in text_lower for word in ["сайт", "лендинг", "визитк", "портфолио", "магазин", "универсальн"]):
+            user_platform[user_id] = "site"
+            history[user_id].append({"role": "system", "content": PROMPT_SITE + COMMON_INFO})
+        elif any(word in text_lower for word in ["телеграм", "tg", "телеграмм"]):
+            user_platform[user_id] = "telegram"
+            history[user_id].append({"role": "system", "content": PROMPT_TG + COMMON_INFO})
+        elif any(word in text_lower for word in ["макс", "max"]):
+            user_platform[user_id] = "max"
+            history[user_id].append({"role": "system", "content": PROMPT_MAX + COMMON_INFO})
+        elif any(word in text_lower for word in ["агент", "ai", "ии"]):
+            user_platform[user_id] = "ai_agent"
+            history[user_id].append({"role": "system", "content": PROMPT_AGENT + COMMON_INFO})
+        else:
+            # Если не поняли, просим уточнить
+            await event.message.answer("Пожалуйста, уточните, что вы хотите заказать: сайт, Telegram-бота, MAX-бота или AI-агента на сайт?")
+            return
+
+    # --- ВЫЗОВ НЕЙРОСЕТИ С ПРАВИЛЬНЫМ ПРОМПТОМ ---
     history[user_id].append({"role": "user", "content": text})
 
     try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history[user_id]
+        messages = history[user_id]
         response = client.chat.completions.create(
             model="google/gemini-2.5-flash-lite",
             messages=messages,
@@ -471,86 +392,56 @@ async def handle_message(event: MessageCreated):
         reply = response.choices[0].message.content
         history[user_id].append({"role": "assistant", "content": reply})
 
-        # --- ИЗВЛЕЧЕНИЕ JSON ИЗ ОТВЕТА ---
+        # --- ПАРСИНГ JSON ---
         json_match = re.search(r'\{.*\}', reply, re.DOTALL)
         if json_match:
             try:
                 data = json.loads(json_match.group())
                 if isinstance(data, dict) and "service" in data:
                     service = data.get("service")
-                    site_type = data.get("site_type")
-                    addons = data.get("addons", [])
-                    platform = data.get("platform", "telegram")
-                    package = data.get("package")
-
+                    
                     if service == "site":
-                        total = 0.0
-                        services_text = ""
-                        site_names = {
-                            "len": "Лендинг",
-                            "info": "Информационный сайт",
-                            "vizit": "Визитка",
-                            "portfolio": "Портфолио",
-                            "shop": "Интернет-магазин",
-                            "universal": "Универсальный сайт"
-                        }
-                        site_prices = {
-                            "len": 6400, "info": 9600, "vizit": 12800,
-                            "portfolio": 16000, "shop": 19200, "universal": 32000
-                        }
-                        total += site_prices.get(site_type, 0)
-                        services_text = site_names.get(site_type, "Сайт")
-                        site_addons = {
-                            1:0, 2:1280, 3:1280, 4:1920, 5:1920, 6:1920,
-                            7:1920, 8:1920, 9:1920, 10:3200, 11:3200, 12:3200, 13:3200,
-                            14:4000
-                        }
-                        addon_names = {
-                            1: "favicon", 2: "Форма обратной связи", 3: "Карта проезда",
-                            4: "Еще 6 товаров (для интернет-магазина)", 5: "Оферта", 6: "Политика конфиденциальности",
-                            7: "Блок отзывов", 8: "Яндекс-Метрика", 9: "Виджет звонка",
-                            10: "Еще 2 товара (для лендинга)", 11: "Автоплатеж", 12: "Google Таблица", 13: "Календарь",
-                            14: "Автоматическая оплата криптовалютой"
-                        }
-                        if addons:
-                            addon_list = [addon_names.get(a, str(a)) for a in addons]
-                            services_text += " + " + ", ".join(addon_list)
-                        for a in addons:
-                            total += site_addons.get(a, 0)
-
-                        calculated_total[user_id] = total
-                        order_services[user_id] = services_text
-                        waiting_for_confirmation[user_id] = True
-                        await event.message.answer(
-                            f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
-                            f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
-                        )
-
-                    elif service == "bot" and package:
-                        if platform == "telegram":
-                            package_prices = {"contact": 6400, "contact_consult": 9600, "full": 16000}
-                        elif platform == "max":
-                            package_prices = {"contact": 8000, "contact_consult": 16000, "full": 24000}
-                        else: # ai_agent
-                            package_prices = {"contact": 16000, "contact_consult": 16000, "full": 16000}
-
-                        package_names = {
-                            "contact": "Бот для сбора контактов (без ИИ)",
-                            "contact_consult": "Сбор контактов и бот-консультант (с ИИ)",
-                            "full": "Бот: сбор контактов, консультант, оплата (с ИИ)"
-                        }
-                        platform_names = {"telegram": "Telegram", "max": "MAX", "ai_agent": "AI-агент на сайте"}
+                        site_type = data.get("site_type")
+                        addons = data.get("addons", [])
+                        site_names = {"len": "Лендинг", "info": "Информационный", "vizit": "Визитка", "portfolio": "Портфолио", "shop": "Интернет-магазин", "universal": "Универсальный"}
+                        site_prices = {"len": 6400, "info": 9600, "vizit": 12800, "portfolio": 16000, "shop": 19200, "universal": 32000}
+                        site_addons = {1:0, 2:1280, 3:1280, 4:1920, 5:1920, 6:1920, 7:1920, 8:1920, 9:1920, 10:3200, 11:3200, 12:3200, 13:3200, 14:4000}
+                        addon_names = {1: "favicon", 2: "Форма обратной связи", 3: "Карта проезда", 4: "Еще 6 товаров", 5: "Оферта", 6: "Политика конфиденциальности", 7: "Блок отзывов", 8: "Яндекс-Метрика", 9: "Виджет звонка", 10: "Еще 2 товара", 11: "Автоплатеж", 12: "Google Таблица", 13: "Календарь", 14: "Оплата криптовалютой"}
                         
-                        total = package_prices.get(package, 0)
-                        services_text = f"{package_names.get(package, 'Бот')} для {platform_names.get(platform, 'Telegram')}"
-
+                        total = site_prices.get(site_type, 0)
+                        services_text = site_names.get(site_type, "Сайт")
+                        if addons:
+                            addon_list = [addon_names.get(a, str(a)) for a in addons if a in site_addons]
+                            services_text += " + " + ", ".join(addon_list)
+                            for a in addons:
+                                total += site_addons.get(a, 0)
+                        
                         calculated_total[user_id] = total
                         order_services[user_id] = services_text
                         waiting_for_confirmation[user_id] = True
-                        await event.message.answer(
-                            f"Стоимость вашего заказа: {int(total)} ₽.\n\n"
-                            f"Вы согласны с этим выбором? (Ответьте «да» или «нет»)"
-                        )
+                        await event.message.answer(f"Стоимость вашего заказа: {int(total)} ₽.\n\nВы согласны с этим выбором? (Ответьте «да» или «нет»)")
+                        
+                    elif service == "bot":
+                        platform = data.get("platform")
+                        package = data.get("package")
+                        
+                        if platform == "telegram":
+                            prices = {"contact": 6400, "contact_consult": 9600, "full": 16000}
+                            names = {"contact": "Бот для сбора контактов (ТГ)", "contact_consult": "Бот-консультант (ТГ)", "full": "Бот с оплатой (ТГ)"}
+                        elif platform == "max":
+                            prices = {"contact": 8000, "contact_consult": 16000, "full": 24000}
+                            names = {"contact": "Бот для сбора контактов (MAX)", "contact_consult": "Бот-консультант (MAX)", "full": "Бот с оплатой (MAX)"}
+                        else: # ai_agent
+                            prices = {"full": 16000}
+                            names = {"full": "AI-агент на сайте"}
+                            
+                        total = prices.get(package, 0)
+                        services_text = names.get(package, "Бот")
+                        
+                        calculated_total[user_id] = total
+                        order_services[user_id] = services_text
+                        waiting_for_confirmation[user_id] = True
+                        await event.message.answer(f"Стоимость вашего заказа: {int(total)} ₽.\n\nВы согласны с этим выбором? (Ответьте «да» или «нет»)")
                     else:
                         await event.message.answer(reply)
                 else:
@@ -562,9 +453,7 @@ async def handle_message(event: MessageCreated):
 
     except Exception as e:
         logging.error(f"Ошибка OpenRouter: {e}")
-        await event.message.answer(
-            "Секунду, уточняю информацию. Пожалуйста, отправьте сообщение ещё раз."
-        )
+        await event.message.answer("Секунду, уточняю информацию. Пожалуйста, отправьте сообщение ещё раз.")
 
 async def main():
     await dp.start_polling(bot)
