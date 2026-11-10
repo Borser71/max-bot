@@ -11,6 +11,7 @@ from maxapi import Bot, Dispatcher, F
 from maxapi.types import MessageCreated
 from openai import OpenAI
 from yookassa import Configuration, Payment
+from maxapi.enums import MessageFormat
 
 # --- Переменные окружения ---
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
